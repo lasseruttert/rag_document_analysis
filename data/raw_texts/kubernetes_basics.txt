@@ -1,0 +1,15 @@
+Kubernetes Grundlagen
+
+Kubernetes ist ein Open-Source-System zur Automatisierung der Bereitstellung, Skalierung und Verwaltung von Container-Anwendungen.
+
+Was ist ein Pod?
+Ein Pod ist die kleinste deploybare Einheit in Kubernetes. Ein Pod enthält einen oder mehrere Container, die gemeinsam auf demselben Host laufen und sich Speicher und Netzwerk teilen.
+
+Services in Kubernetes
+Ein Service ist eine Abstraktion, die eine logische Gruppe von Pods definiert und eine Policy für den Zugriff auf sie festlegt. Services ermöglichen die lose Kopplung zwischen abhängigen Pods.
+
+Deployments
+Ein Deployment stellt deklarative Updates für Pods und ReplicaSets bereit. Sie beschreiben einen gewünschten Zustand, und der Deployment Controller ändert den aktuellen Zustand, um den gewünschten Zustand zu erreichen.
+
+ConfigMaps und Secrets
+ConfigMaps ermöglichen es, Konfigurationsdaten von Container-Images zu trennen, um containerisierte Anwendungen portabel zu halten. Secrets sind ähnlich wie ConfigMaps, aber speziell für sensible Daten wie Passwörter gedacht.

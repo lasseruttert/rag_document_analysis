@@ -1,0 +1,16 @@
+Python Best Practices
+
+Code-Formatierung
+Verwende PEP 8 als Stilrichtlinie. Nutze Tools wie Black oder autopep8 für automatische Formatierung. Einheitlicher Code ist leichter zu lesen und zu warten.
+
+Virtuelle Umgebungen
+Erstelle immer virtuelle Umgebungen für deine Projekte. Dies isoliert Abhängigkeiten und verhindert Konflikte zwischen verschiedenen Projekten. Nutze venv, virtualenv oder conda.
+
+Type Hints
+Ab Python 3.5 kannst du Type Hints verwenden. Sie machen deinen Code verständlicher und ermöglichen bessere IDE-Unterstützung sowie statische Typprüfung mit mypy.
+
+Error Handling
+Verwende spezifische Exceptions anstatt bare except-Klauseln. Dokumentiere, welche Exceptions deine Funktionen werfen können. Nutze Context Manager (with-Statement) für Ressourcenverwaltung.
+
+Testing
+Schreibe Tests mit pytest oder unittest. Strebe eine hohe Testabdeckung an, aber konzentriere dich auf kritische Pfade. Nutze Mocking für externe Abhängigkeiten.

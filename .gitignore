@@ -1,0 +1,24 @@
+# Environment
+.env
+*.pyc
+__pycache__/
+.ipynb_checkpoints/
+
+# Data
+data/embeddings/*.pkl
+data/sample_docs/*
+!data/sample_docs/.gitkeep
+
+# Models
+model_cache/
+*.bin
+*.safetensors
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
