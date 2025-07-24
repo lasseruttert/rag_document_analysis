@@ -14,6 +14,7 @@ This is a **RAG (Retrieval-Augmented Generation) Document Analysis System** buil
 conda install pytorch torchvision pytorch-cuda=11.8 -c pytorch -c nvidia
 conda install pandas numpy scikit-learn jupyter
 pip install sentence-transformers chromadb langchain pypdf2 python-docx python-dotenv streamlit
+pip install pdfplumber>=3.0.0 PyMuPDF>=1.23.0
 ```
 
 ### Testing and Validation
@@ -39,15 +40,18 @@ streamlit run app/streamlit_app.py
 ## Architecture Overview
 
 ### Core Pipeline Flow
-1. **Document Ingestion**: Text files → Chunking (1000 chars, 200 overlap) → Embeddings (384D) → ChromaDB storage
+1. **Document Ingestion**: Multi-format files (TXT/PDF/DOCX) → Text extraction → Chunking (1000 chars, 200 overlap) → Embeddings (384D) → ChromaDB storage
 2. **Query Processing**: User query → Query embedding → Semantic search → Context retrieval → T5 generation → Response
 
 ### Key Components
 
 **Text Processing (`src/text_processor.py`)**:
-- Loads .txt files from `data/raw_texts/`
+- **Multi-format support**: TXT, PDF (via pdfplumber + PyMuPDF fallback), DOCX (via python-docx)
+- **Advanced PDF parsing**: Table extraction, multi-page support, fallback strategies
+- **DOCX processing**: Header preservation, table extraction, element-order retention
 - Character-based chunking with configurable overlap
-- Metadata tracking (filename, position, chunk_id)
+- Enhanced metadata tracking (filename, file_type, position, chunk_id, chunk_size)
+- File size validation (50MB limit) and error handling
 
 **Embedding Management (`src/embeddings.py`)**:
 - Uses `sentence-transformers/all-MiniLM-L6-v2` model
@@ -76,17 +80,20 @@ streamlit run app/streamlit_app.py
 - Configurable model and processing parameters
 
 **Streamlit App (`app/streamlit_app.py`)**:
-- Web interface with file upload capability
-- Real-time document ingestion triggers
-- Query interface with context transparency
+- **Enhanced file upload**: Support for TXT, PDF, DOCX with type validation
+- **Improved UI**: File type icons, upload statistics, progress bars
+- **Advanced context display**: Expandable chunks with file type indicators
+- Real-time document ingestion with progress tracking
+- Enhanced metadata display (file type distribution, chunk statistics)
 - Cached pipeline for performance
 
 ## Data Management
 
 ### Document Storage
-- **Input**: `data/raw_texts/` - Place .txt files here for processing
+- **Input**: `data/raw_texts/` - Place TXT, PDF, or DOCX files here for processing
 - **Processed**: `data/processed/` - Currently unused, reserved for processed data
 - **Vector DB**: `data/vectordb/` - ChromaDB persistent storage with UUID-based indices
+- **File type support**: .txt, .pdf, .docx with automatic format detection
 
 ### Current Test Documents
 - `kubernetes_basics.txt`: Kubernetes fundamentals (Pods, Services, Deployments)
@@ -115,15 +122,22 @@ Each component in `src/` is designed to be independently testable and executable
 - German language error messages in user-facing components
 - Graceful degradation when GPU is unavailable
 
-### Testing Strategy
-- Use `test.py` to verify all dependencies and GPU availability
-- Each module includes `__main__` blocks with sample usage
+### Testing Strategy  
+- Use `test.py` to verify all dependencies, GPU availability, and document parsers
+- **Enhanced testing**: Multi-format document processing, metadata validation, file size limits
+- Each module includes `__main__` blocks with sample usage and format-specific testing
+- **System integration tests**: End-to-end validation with new file types
 - Test with provided sample documents before adding new content
 
 ## Integration Points
 
 ### Adding New Document Types
-Extend `src/text_processor.py` to handle PDF/DOCX formats as outlined in PLAN.md Phase 1.1.
+✅ **COMPLETED**: PDF/DOCX support implemented with dual parsing strategies:
+- **PDF**: pdfplumber (primary) + PyMuPDF (fallback) with table extraction
+- **DOCX**: python-docx with structure preservation and table support
+- **TXT**: Enhanced with encoding fallbacks and validation
+
+To add more formats, extend the `load_all_files()` function in `src/text_processor.py`.
 
 ### Improving Retrieval
 Consider hybrid approaches combining semantic and keyword search (PLAN.md Phase 2.1).
@@ -140,7 +154,7 @@ See `PLAN.md` for comprehensive enhancement roadmap including:
 - Evaluation frameworks
 - Performance optimizations
 
-The system is production-ready for local document analysis with current .txt file support and can be extended systematically following the planned phases.
+The system is production-ready for local document analysis with **comprehensive multi-format support** (TXT, PDF, DOCX) and can be extended systematically following the planned phases.
 
 ## Coding Best Practices
 
@@ -388,3 +402,8 @@ def process_query(self, query: str) -> str:
 - Keep refactoring changes separate from feature changes
 
 This RAG system should be extended following these practices to ensure long-term maintainability, reliability, and performance.
+
+## Development Environment Guidelines
+
+### Environment Restrictions
+- **Key Rule**: Do not install anything outside of the conda environment "rag"

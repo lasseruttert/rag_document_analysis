@@ -40,19 +40,29 @@ rag_document_analysis/
 
 ## Implementierte Module
 
-### 1. Text Processing (`src/text_processor.py`)
+### 1. Text Processing (`src/text_processor.py`) 🆕 **ERWEITERT**
 
 **Funktionalität:**
-- Lädt .txt-Dateien aus einem Verzeichnis
+- **Multi-Format-Support**: TXT, PDF, DOCX mit automatischer Format-Erkennung
+- **PDF-Verarbeitung**: Dual-Parser-Strategie (pdfplumber + PyMuPDF fallback)
+- **DOCX-Verarbeitung**: Struktur-erhaltende Extraktion mit python-docx
+- **Tabellen-Extraktion**: Strukturierte Konvertierung von PDF/DOCX-Tabellen
 - Chunking von Texten in überlappende Segmente (Standard: 1000 Zeichen mit 200 Zeichen Überlappung)
-- Metadata-Management für jeden Chunk (Dateiname, Position, Chunk-ID)
+- **Erweiterte Metadaten**: Dateiname, Dateityp, Position, Chunk-ID, Chunk-Größe
+- **Dateigröße-Validierung**: 50MB Limit mit Logging
+- **Robuste Error-Behandlung**: Encoding-Fallbacks, Permission-Handling
 
 **Wichtige Funktionen:**
-- `load_text_files(directory_path)`: Lädt alle .txt-Dateien
-- `chunk_text(text, filename, chunk_size, chunk_overlap)`: Teilt Text in Chunks
-- `process_documents(directory_path)`: Vollständige Dokumentenverarbeitung
+- `load_all_files(directory_path)`: Lädt alle unterstützten Dateitypen
+- `load_pdf_files(directory_path)`: PDF-spezifische Verarbeitung
+- `load_docx_files(directory_path)`: DOCX-spezifische Verarbeitung
+- `load_text_files_extended(directory_path)`: Erweiterte TXT-Verarbeitung
+- `chunk_text(text, filename, chunk_size, chunk_overlap, file_type)`: Erweiterte Chunking-Funktion
+- `process_documents(directory_path)`: Vollständige Multi-Format-Dokumentenverarbeitung
+- `validate_file_size(file_path)`: Dateigröße-Validierung
+- `safe_file_processing(file_path, processor_func)`: Sichere Dateiverarbeitung
 
-**Status:** ✅ Vollständig implementiert mit Hauptfunktion für Tests
+**Status:** ✅ Vollständig implementiert mit Multi-Format-Support und umfassendem Testing
 
 ### 2. Embedding Management (`src/embeddings.py`)
 
@@ -139,21 +149,24 @@ rag_document_analysis/
 
 **Status:** ✅ Vollständig implementiert mit Beispiel-Queries
 
-### 7. Streamlit Web Interface (`app/streamlit_app.py`)
+### 7. Streamlit Web Interface (`app/streamlit_app.py`) 🆕 **ERWEITERT**
 
 **Funktionalität:**
-- Web-basierte Benutzeroberfläche
-- Datei-Upload für .txt-Dokumente
-- Dokumenten-Ingestion-Trigger
-- Echtzeit Query-Interface mit Kontext-Anzeige
+- Web-basierte Benutzeroberfläche mit verbesserter UX
+- **Multi-Format-Upload**: TXT, PDF, DOCX mit Typ-Validierung
+- **Enhanced Upload-Feedback**: Typ-Icons, Upload-Statistiken, Fehler-Handling
+- Dokumenten-Ingestion mit Progress-Bars und Status-Updates
+- **Erweiterte Query-Interface**: Expandable Context-Chunks mit Metadaten
 
 **Features:**
-- Sidebar für Dokumenten-Management
-- Upload-Verzeichnis: `data/raw_texts`
+- **Smart Sidebar**: Dokumenttyp-Statistiken, Upload-Zusammenfassung
+- Upload-Verzeichnis: `data/raw_texts` (Multi-Format)
+- **Progress-Tracking**: Echtzeit-Status für Ingestion-Prozess
+- **Enhanced Context-Display**: File-Type-Icons, Relevanz-Scores, Chunk-Details
+- **Metadata-Rich UI**: Position, Chunk-Größe, Distanz-Metriken
 - Cached RAG-Pipeline für Performance
-- Transparenz durch Kontext-Chunk-Anzeige mit Distanz-Scores
 
-**Status:** ✅ Vollständig implementiert mit caching
+**Status:** ✅ Vollständig implementiert mit Multi-Format-Support und verbesserter UX
 
 ## Datenbasis
 
@@ -178,24 +191,65 @@ conda install pandas numpy scikit-learn jupyter
 # Pip Packages
 pip install sentence-transformers chromadb langchain
 pip install pypdf2 python-docx python-dotenv streamlit
+pip install pdfplumber>=3.0.0 PyMuPDF>=1.23.0  # 🆕 Neu hinzugefügt
 ```
 
-### Test-Skript (`test.py`):
-- Überprüft alle kritischen Dependencies
+### Test-Skript (`test.py`) 🆕 **ERWEITERT**:
+- Überprüft alle kritischen Dependencies (inkl. pdfplumber, PyMuPDF)
 - GPU/CUDA-Verfügbarkeit-Test
+- **Dokumenten-Parser-Tests**: PDF/DOCX-Parsing-Fähigkeiten
+- **Erweiterte Dokumentverarbeitung**: Multi-Format-Processing-Tests
+- **Dateityp-Validierung**: Größen-Limits und Error-Handling
+- **System-Integration-Test**: End-to-End-Validierung mit neuen Metadaten
 - Sentence Transformer Modell-Download-Test
 - Embedding-Dimensions-Verifikation (384D)
 
 ## Architektur-Design
 
-### RAG-Flow:
+### RAG-Flow: 🆕 **ERWEITERT**
 1. **Ingestion Phase:**
-   - Text-Dokumente → Chunking → Embeddings → Vektordatenbank
+   - **Multi-Format-Dokumente** (TXT/PDF/DOCX) → **Format-spezifische Extraktion** → Chunking → Embeddings → Vektordatenbank (mit Dateityp-Metadaten)
 
 2. **Query Phase:**
-   - User Query → Query Embedding → Ähnlichkeitssuche → Top-K Retrieval → LLM Context → Antwortgenerierung
+   - User Query → Query Embedding → Ähnlichkeitssuche → Top-K Retrieval → **Enhanced Context** (mit Dateityp-Info) → LLM Context → Antwortgenerierung
 
 ### Modularität:
 - Jede Komponente ist eigenständig testbar
 - Klare Trennung zwischen Verarbeitung, Speicherung und Generierung
 - Dependency Injection für flexible Konfiguration
+
+## Aktuelle Einschränkungen 🆕 **REDUZIERT**
+
+1. ~~**Textformat-Limitation:** Nur .txt-Dateien unterstützt~~ ✅ **BEHOBEN**: Vollständiger Multi-Format-Support (TXT/PDF/DOCX)
+2. **Sprachmodell:** T5-base ist relativ klein für komplexe Reasoning-Aufgaben
+3. **Chunking-Strategie:** Simple character-based chunking ohne semantische Grenzen *(Nächste Priorität: P1.2)*
+4. **Evaluation:** Keine Metriken für Retrieval-Qualität oder Antwort-Evaluation
+5. **Neue Einschränkungen:**
+   - **Dateigröße-Limit:** 50MB pro Datei
+   - **Bildinhalt:** PDFs/DOCX mit Bildern/Diagrammen werden nur als Text extrahiert
+   - **Komplexe Layouts:** Sehr spezielle PDF-Formate könnten Parsing-Probleme haben
+
+## Implementierungs-Status 🆕
+
+### ✅ Abgeschlossen (Januar 2025):
+- **P1.1 Multi-Format-Support**: PDF/DOCX/TXT-Verarbeitung vollständig implementiert
+- **Enhanced UI**: File-Type-Icons, Progress-Tracking, Metadaten-Display
+- **Robuste Error-Behandlung**: Größen-Validierung, Encoding-Fallbacks, Logging
+- **Comprehensive Testing**: Multi-Format-Tests, System-Integration, Metadaten-Validierung
+
+### 🔄 Nächste Priorität:
+- **P1.2 Verbessertes Chunking**: Semantisches Chunking mit spaCy/NLTK (siehe PLAN.md)
+- **P1.3 Konfigurationssystem**: YAML-basierte Einstellungen ohne Code-Änderungen
+
+## Zusammenfassung
+
+**Projektreife:** Production-ready für lokale Dokumentenanalyse mit **vollständigem Multi-Format-Support** (TXT/PDF/DOCX) und erweiterten UI-Features. Das System ist bereit für den produktiven Einsatz und systematische Erweiterung gemäß PLAN.md.
+
+**Wichtigste Verbesserungen (Januar 2025):**
+- 📄 **Multi-Format-Verarbeitung**: PDF (pdfplumber + PyMuPDF) und DOCX (python-docx) vollständig integriert
+- 🗂️ **Tabellen-Extraktion**: Strukturierte Konvertierung von PDF/DOCX-Tabellen zu Text
+- 🎯 **Enhanced UI**: File-Type-Icons, Upload-Statistiken, Progress-Tracking, erweiterte Metadaten
+- 🛡️ **Robuste Error-Behandlung**: 50MB File-Size-Limits, Encoding-Fallbacks, umfassendes Logging
+- ✅ **Comprehensive Testing**: Multi-Format-Tests, System-Integration, Metadaten-Validierung
+
+Das RAG-System unterstützt jetzt alle gängigen Dokumentformate und bietet eine professionelle, benutzerfreundliche Oberfläche für die Dokumentenanalyse.
