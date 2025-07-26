@@ -1,0 +1,225 @@
+# RAG Document Analysis System Configuration
+# This file controls all configurable parameters for the system
+
+# Model Configuration
+models:
+  # Embedding model for semantic search
+  embedding_model: "all-MiniLM-L6-v2"
+  embedding_dimensions: 384
+  
+  # Language model for answer generation
+  llm_model: "google/flan-t5-base"
+  
+  # GPU/CPU preference (auto, gpu, cpu)
+  device_preference: "auto"
+  
+  # Model loading settings
+  trust_remote_code: false
+  use_auth_token: false
+
+# Text Processing and Chunking Configuration
+chunking:
+  # Chunking strategy: "simple", "sentence_aware", "paragraph_based"
+  strategy: "sentence_aware"
+  
+  # Chunk size in characters
+  chunk_size: 1000
+  
+  # Overlap between chunks in characters
+  chunk_overlap: 200
+  
+  # Maximum file size for processing (in MB)
+  max_file_size_mb: 50
+  
+  # Supported file types
+  supported_formats: ["txt", "pdf", "docx"]
+  
+  # Text preprocessing settings
+  normalize_whitespace: true
+  remove_empty_lines: true
+  min_chunk_length: 100
+
+# Retrieval Configuration
+retrieval:
+  # Default number of top results to retrieve
+  default_top_k: 5
+  
+  # Maximum number of results for hybrid retrieval candidates
+  max_candidate_multiplier: 3
+  
+  # Similarity threshold for semantic search (0.0-1.0)
+  similarity_threshold: 0.0
+  
+  # Hybrid retrieval weights (if not auto-detected)
+  default_weights:
+    semantic_weight: 0.6
+    keyword_weight: 0.4
+
+# Enhanced Hybrid Retrieval Settings
+hybrid_retrieval:
+  # Enable adaptive query type detection
+  adaptive_weighting: true
+  
+  # Query type specific weights
+  query_type_weights:
+    technical:
+      semantic_weight: 0.37
+      keyword_weight: 0.63
+    question:
+      semantic_weight: 0.7
+      keyword_weight: 0.3
+    balanced:
+      semantic_weight: 0.6
+      keyword_weight: 0.4
+  
+  # BM25 settings for keyword search
+  bm25:
+    # BM25 parameters
+    k1: 1.2
+    b: 0.75
+    
+    # German language processing
+    enable_stemming: true
+    enable_compound_handling: true
+    min_token_length: 3
+    
+    # Custom stopwords (in addition to default German stopwords)
+    custom_stopwords: []
+
+# LLM Generation Settings
+generation:
+  # Maximum input tokens for context
+  max_input_tokens: 2048
+  
+  # Maximum output tokens for generated answers
+  max_output_tokens: 512
+  
+  # Generation parameters
+  temperature: 0.1
+  do_sample: false
+  num_beams: 5
+  early_stopping: true
+  
+  # Prompt templates
+  system_prompt: "Du bist ein hilfsreicher Assistent, der Fragen basierend auf bereitgestellten Dokumenten beantwortet."
+  
+  # Answer language preference
+  answer_language: "german"
+  
+  # Fallback response when no context is found
+  no_context_response: "Entschuldigung, ich konnte keine relevanten Informationen zu Ihrer Frage finden."
+
+# Vector Database Configuration
+vector_database:
+  # Storage path for ChromaDB
+  storage_path: "data/vectordb"
+  
+  # Collection name for documents
+  default_collection: "documents"
+  
+  # Persistence settings
+  persist_directory: true
+  auto_persist: true
+  
+  # Performance settings
+  batch_size: 1000
+  embedding_batch_size: 32
+
+# File Processing Configuration
+file_processing:
+  # Input directory for documents
+  input_directory: "data/raw_texts"
+  
+  # Temporary upload directory
+  upload_directory: "data/uploads"
+  
+  # Processing settings
+  create_directories: true
+  clean_temp_files: true
+  
+  # PDF processing preferences
+  pdf:
+    primary_parser: "pdfplumber"  # "pdfplumber" or "pymupdf"
+    fallback_parser: "pymupdf"
+    extract_tables: true
+    preserve_layout: true
+  
+  # DOCX processing settings
+  docx:
+    preserve_formatting: true
+    extract_tables: true
+    include_headers: true
+
+# Streamlit UI Configuration
+ui:
+  # Page configuration
+  page_title: "RAG Document Analysis"
+  page_icon: "📚"
+  layout: "wide"
+  initial_sidebar_state: "expanded"
+  
+  # Default settings
+  default_retrieval_method: "hybrid"
+  show_debug_info: false
+  enable_file_upload: true
+  
+  # Display settings
+  max_context_chunks: 5
+  expand_first_chunk: true
+  show_chunk_metadata: true
+
+# Logging Configuration
+logging:
+  # Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  level: "INFO"
+  
+  # Log format
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  
+  # Log to file
+  log_to_file: false
+  log_file_path: "logs/rag_system.log"
+  
+  # Enable performance logging
+  log_performance: true
+  
+  # Enable query logging
+  log_queries: false  # Set to false for privacy
+
+# Performance and Monitoring
+performance:
+  # Enable performance monitoring
+  enable_monitoring: true
+  
+  # Cache settings
+  enable_caching: true
+  cache_ttl_seconds: 3600
+  
+  # Timeout settings (in seconds)
+  embedding_timeout: 30
+  llm_timeout: 60
+  retrieval_timeout: 10
+  
+  # Memory management
+  clear_cache_on_restart: true
+  max_memory_usage_mb: 4096
+
+# Development and Testing Settings
+development:
+  # Enable development mode features
+  debug_mode: false
+  
+  # Test data settings
+  enable_test_data: false
+  test_data_directory: "test_data"
+  
+  # Benchmark settings
+  enable_benchmarking: false
+  benchmark_output_directory: "benchmarks/results"
+
+# Environment Variable Overrides
+# Any setting above can be overridden using environment variables
+# Format: RAG_<SECTION>_<KEY>=value
+# Example: RAG_MODELS_EMBEDDING_MODEL="sentence-transformers/all-mpnet-base-v2"
+#          RAG_CHUNKING_CHUNK_SIZE=1500
+#          RAG_RETRIEVAL_DEFAULT_TOP_K=10

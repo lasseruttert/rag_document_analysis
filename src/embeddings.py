@@ -1,34 +1,70 @@
 import torch
 from sentence_transformers import SentenceTransformer
-from typing import List, Dict
+from typing import List, Dict, Optional
 import numpy as np
+from src.config import get_config, ModelConfig
 
 class EmbeddingManager:
-    def __init__(self, model_name: str = 'all-MiniLM-L6-v2', use_gpu: bool = True):
+    def __init__(self, 
+                 model_name: Optional[str] = None, 
+                 use_gpu: Optional[bool] = None,
+                 batch_size: Optional[int] = None,
+                 config: Optional[ModelConfig] = None):
         """
         Initialisiert den EmbeddingManager.
 
         Args:
-            model_name: Name des Sentence-Transformer-Modells.
-            use_gpu: Ob die GPU verwendet werden soll, falls verfügbar.
+            model_name: Name des Sentence-Transformer-Modells (uses config if None).
+            use_gpu: Ob die GPU verwendet werden soll (uses config if None).
+            batch_size: Default batch size for embedding generation.
+            config: ModelConfig instance (uses global config if None).
         """
+        # Load configuration
+        if config is None:
+            full_config = get_config()
+            config = full_config.models
+        
+        self.config = config
+        model_name = model_name or config.embedding_model
+        
+        # Device selection based on config
+        if use_gpu is None:
+            if config.device_preference == "gpu":
+                use_gpu = True
+            elif config.device_preference == "cpu":
+                use_gpu = False
+            else:  # "auto"
+                use_gpu = torch.cuda.is_available()
+        
         self.device = torch.device("cuda" if torch.cuda.is_available() and use_gpu else "cpu")
         print(f"Using device: {self.device}")
-        self.model = SentenceTransformer(model_name, device=self.device)
+        
+        # Initialize model
+        self.model = SentenceTransformer(
+            model_name, 
+            device=self.device,
+            trust_remote_code=config.trust_remote_code,
+            use_auth_token=config.use_auth_token if config.use_auth_token else None
+        )
+        
+        # Set default batch size
+        self.default_batch_size = batch_size or getattr(get_config().vector_database, 'embedding_batch_size', 32)
 
-    def generate_embeddings(self, chunks: List[Dict[str, any]], batch_size: int = 32) -> List[Dict[str, any]]:
+    def generate_embeddings(self, chunks: List[Dict[str, any]], batch_size: Optional[int] = None) -> List[Dict[str, any]]:
         """
         Generiert Embeddings für eine Liste von Text-Chunks.
 
         Args:
             chunks: Eine Liste von Dictionaries, die die Chunks enthalten.
-            batch_size: Die Größe der Batches für die Verarbeitung.
+            batch_size: Die Größe der Batches für die Verarbeitung (uses default if None).
 
         Returns:
             Die Liste der Chunks, angereichert mit den generierten Embeddings.
         """
         if not chunks:
             return []
+
+        batch_size = batch_size or self.default_batch_size
 
         # Extrahieren der Inhalte für das Encoding
         contents = [chunk['content'] for chunk in chunks]

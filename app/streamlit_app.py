@@ -6,16 +6,20 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from src.pipeline import RAGPipeline
+from src.config import get_config
+
+# Load configuration
+config = get_config()
 
 # --- Streamlit Page Configuration ---
 st.set_page_config(
-    page_title="RAG Document Analysis",
-    page_icon="📄",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    page_title=config.ui.page_title,
+    page_icon=config.ui.page_icon,
+    layout=config.ui.layout,
+    initial_sidebar_state=config.ui.initial_sidebar_state
 )
 
-st.title("📄 RAG Document Analysis")
+st.title(f"{config.ui.page_icon} {config.ui.page_title}")
 st.markdown("Stellen Sie Fragen zu Ihren hochgeladenen Dokumenten.")
 
 # --- Initialize RAG Pipeline (Cached) ---
@@ -24,12 +28,28 @@ def get_rag_pipeline():
     """
     Initialisiert und cached die RAGPipeline.
     """
-    return RAGPipeline()
+    return RAGPipeline(config=config)
 
 pipeline = get_rag_pipeline()
 
 # --- Sidebar for Document Ingestion ---
 st.sidebar.header("Dokumenten-Verwaltung")
+
+# Configuration section
+if config.ui.show_debug_info:
+    with st.sidebar.expander("⚙️ Konfiguration", expanded=False):
+        st.markdown("**Aktuelle Einstellungen:**")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Chunk Size", config.chunking.chunk_size)
+            st.metric("Embedding Model", config.models.embedding_model.split('/')[-1])
+        with col2:
+            st.metric("Overlap", config.chunking.chunk_overlap)
+            st.metric("LLM Model", config.models.llm_model.split('/')[-1])
+        
+        if st.button("🔄 Config neu laden"):
+            st.cache_resource.clear()
+            st.rerun()
 
 # Create a directory for uploaded files if it doesn't exist
 upload_dir = "data/raw_texts"
@@ -121,9 +141,19 @@ else:
 
 # Hybrid Retrieval Settings
 st.sidebar.markdown("### 🔍 Retrieval-Einstellungen")
+
+# Get default method from config
+default_methods = ["Hybrid (Empfohlen)", "Nur Semantisch", "Nur Keywords"]
+default_index = 0  # Hybrid as default
+if config.ui.default_retrieval_method == "semantic":
+    default_index = 1
+elif config.ui.default_retrieval_method == "keywords":
+    default_index = 2
+
 retrieval_method = st.sidebar.radio(
     "Retrieval-Methode",
-    ["Hybrid (Empfohlen)", "Nur Semantisch", "Nur Keywords"],
+    default_methods,
+    index=default_index,
     help="Hybrid kombiniert semantische und Keyword-Suche intelligent"
 )
 
@@ -146,7 +176,7 @@ if user_query:
             # Wähle Retrieval-Methode basierend auf User-Auswahl
             if retrieval_method == "Hybrid (Empfohlen)":
                 answer = pipeline.enhanced_answer_query(user_query)
-                retrieved_chunks = pipeline.enhanced_retriever.hybrid_retrieve(user_query, top_k=3) if pipeline.enhanced_retriever else []
+                retrieved_chunks = pipeline.enhanced_retriever.hybrid_retrieve(user_query, top_k=config.ui.max_context_chunks) if pipeline.enhanced_retriever else []
                 
                 # Query Analysis Info anzeigen
                 if retrieved_chunks:
@@ -159,12 +189,12 @@ if user_query:
                 # Fallback: BM25-only (wird über Enhanced Retriever mit keyword_weight=1.0 simuliert)
                 st.info("🔤 Reine Keyword-Suche aktiviert")
                 answer = pipeline.answer_query(user_query)  # Fallback auf Standard
-                retrieved_chunks = pipeline.retriever.retrieve(user_query, top_k=3)
+                retrieved_chunks = pipeline.retriever.retrieve(user_query, top_k=config.ui.max_context_chunks)
             else:
                 # Standard semantic retrieval
                 st.info("🧠 Reine semantische Suche aktiviert")
                 answer = pipeline.answer_query(user_query)
-                retrieved_chunks = pipeline.retriever.retrieve(user_query, top_k=3)
+                retrieved_chunks = pipeline.retriever.retrieve(user_query, top_k=config.ui.max_context_chunks)
             
             st.subheader("🤖 Antwort:")
             st.write(answer)

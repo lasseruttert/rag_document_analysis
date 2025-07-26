@@ -1,41 +1,55 @@
 import chromadb
-from typing import List, Dict
+from typing import List, Dict, Optional
 import os
+from src.config import get_config, VectorDatabaseConfig
 
 class VectorStoreManager:
-    def __init__(self, storage_path: str = 'data/vectordb'):
+    def __init__(self, 
+                 storage_path: Optional[str] = None,
+                 config: Optional[VectorDatabaseConfig] = None):
         """
         Initialisiert den VectorStoreManager.
 
         Args:
-            storage_path: Pfad zum Speichern der ChromaDB-Daten.
+            storage_path: Pfad zum Speichern der ChromaDB-Daten (uses config if None).
+            config: VectorDatabaseConfig instance (uses global config if None).
         """
+        # Load configuration
+        if config is None:
+            full_config = get_config()
+            config = full_config.vector_database
+        
+        self.config = config
+        storage_path = storage_path or config.storage_path
+        
         if not os.path.exists(storage_path):
             os.makedirs(storage_path)
         
         self.client = chromadb.PersistentClient(path=storage_path)
         self.collection = None
 
-    def create_or_get_collection(self, name: str = "documents") -> chromadb.Collection:
+    def create_or_get_collection(self, name: Optional[str] = None) -> chromadb.Collection:
         """
         Erstellt eine neue Collection oder ruft eine bestehende ab.
 
         Args:
-            name: Name der Collection.
+            name: Name der Collection (uses config default if None).
 
         Returns:
             Die ChromaDB Collection.
         """
+        name = name or self.config.default_collection
         self.collection = self.client.get_or_create_collection(name=name)
         print(f"Collection '{name}' loaded. It contains {self.collection.count()} documents.")
         return self.collection
 
-    def add_documents(self, chunks_with_embeddings: List[Dict[str, any]]):
+    def add_documents(self, chunks_with_embeddings: List[Dict[str, any]], batch_size: Optional[int] = None):
         """
         Fügt Dokumenten-Chunks zu der Collection hinzu.
 
         Args:
             chunks_with_embeddings: Eine Liste von Chunks mit generierten Embeddings.
+            batch_size: Batch-Größe für die Verarbeitung (uses config default if None).
         """
         if not self.collection:
             raise ValueError("Collection not initialized. Call create_or_get_collection() first.")
@@ -44,18 +58,30 @@ class VectorStoreManager:
             print("No documents to add.")
             return
 
-        ids = [chunk['metadata']['chunk_id'] for chunk in chunks_with_embeddings]
-        documents = [chunk['content'] for chunk in chunks_with_embeddings]
-        embeddings = [chunk['embedding'].tolist() for chunk in chunks_with_embeddings]
-        metadatas = [chunk['metadata'] for chunk in chunks_with_embeddings]
+        batch_size = batch_size or self.config.batch_size
+        total_chunks = len(chunks_with_embeddings)
+        
+        print(f"Adding {total_chunks} documents to the collection in batches of {batch_size}...")
+        
+        # Process in batches
+        for i in range(0, total_chunks, batch_size):
+            batch_end = min(i + batch_size, total_chunks)
+            batch_chunks = chunks_with_embeddings[i:batch_end]
+            
+            ids = [chunk['metadata']['chunk_id'] for chunk in batch_chunks]
+            documents = [chunk['content'] for chunk in batch_chunks]
+            embeddings = [chunk['embedding'].tolist() for chunk in batch_chunks]
+            metadatas = [chunk['metadata'] for chunk in batch_chunks]
 
-        print(f"Adding {len(ids)} documents to the collection...")
-        self.collection.add(
-            ids=ids,
-            embeddings=embeddings,
-            documents=documents,
-            metadatas=metadatas
-        )
+            print(f"Processing batch {i//batch_size + 1}/{(total_chunks + batch_size - 1)//batch_size} ({len(batch_chunks)} documents)...")
+            
+            self.collection.add(
+                ids=ids,
+                embeddings=embeddings,
+                documents=documents,
+                metadatas=metadatas
+            )
+        
         print(f"Successfully added documents. Collection now contains {self.collection.count()} documents.")
 
 if __name__ == '__main__':

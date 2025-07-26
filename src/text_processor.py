@@ -3,6 +3,7 @@ import re
 import logging
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional, Any
+from src.config import get_config, ChunkingConfig
 
 # PDF parsing imports
 try:
@@ -685,20 +686,29 @@ def extract_keywords(text: str, max_keywords: int = 5) -> List[str]:
 
 def process_documents(
     directory_path: str,
-    chunk_size: int = 1000,
-    chunk_overlap: int = 200
+    chunk_size: Optional[int] = None,
+    chunk_overlap: Optional[int] = None,
+    config: Optional[ChunkingConfig] = None
 ) -> List[Dict[str, Any]]:
     """
     Verarbeitet alle Dokumente aus einem Verzeichnis zu Chunks.
 
     Args:
         directory_path: Pfad zum Verzeichnis mit den Dokumenten.
-        chunk_size: Die maximale Zeichenlänge eines Chunks.
-        chunk_overlap: Die Anzahl der überlappenden Zeichen zwischen Chunks.
+        chunk_size: Die maximale Zeichenlänge eines Chunks (uses config if None).
+        chunk_overlap: Die Anzahl der überlappenden Zeichen zwischen Chunks (uses config if None).
+        config: ChunkingConfig instance (uses global config if None).
 
     Returns:
         Eine Liste aller Chunks aus allen Dokumenten.
     """
+    # Load configuration
+    if config is None:
+        full_config = get_config()
+        config = full_config.chunking
+    
+    chunk_size = chunk_size or config.chunk_size
+    chunk_overlap = chunk_overlap or config.chunk_overlap
     all_chunks = []
     loaded_files = load_all_files(directory_path)
     

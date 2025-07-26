@@ -28,3 +28,12 @@ PROJECT.md
 # OS
 .DS_Store
 Thumbs.db
+=0.2.2
+=0.20.0
+=3.8.1
+PERFORMANCE_REPORT.md
+.claude/settings.local.json
+benchmarks/results/benchmark_20250726_145551.csv
+benchmarks/results/benchmark_20250726_145551.json
+data/vectordb/chroma.sqlite3
+data/vectordb/chroma.sqlite3
