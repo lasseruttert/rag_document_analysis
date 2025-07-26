@@ -7,6 +7,8 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from src.pipeline import RAGPipeline
 from src.config import get_config
+from src.metadata_filter import MetadataFilter, QueryFilter, CombinedFilter
+from src.collection_manager import CollectionInfo, CollectionStats
 
 # Load configuration
 config = get_config()
@@ -33,7 +35,70 @@ def get_rag_pipeline():
 pipeline = get_rag_pipeline()
 
 # --- Sidebar for Document Ingestion ---
-st.sidebar.header("Dokumenten-Verwaltung")
+st.sidebar.header("📂 Dokumenten-Verwaltung")
+
+# === COLLECTION MANAGEMENT ===
+with st.sidebar.expander("🗂️ Collection Management", expanded=False):
+    st.markdown("**Collections verwalten:**")
+    
+    # List existing collections
+    collections = pipeline.list_collections()
+    if collections:
+        current_collection_names = [c['name'] for c in collections]
+        
+        # Active collection selector
+        active_collection = st.selectbox(
+            "Aktive Collection:",
+            current_collection_names,
+            index=current_collection_names.index(pipeline.active_collection_name) if pipeline.active_collection_name in current_collection_names else 0,
+            help="Wählen Sie die Collection für Queries aus"
+        )
+        
+        # Set active collection if different
+        if active_collection != pipeline.active_collection_name:
+            if pipeline.set_active_collection(active_collection):
+                st.success(f"✅ Aktive Collection: {active_collection}")
+                st.rerun()
+    
+    # Create new collection
+    st.markdown("**Neue Collection erstellen:**")
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        new_collection_name = st.text_input("Name:", key="new_collection")
+    with col2:
+        create_collection = st.button("➕", help="Collection erstellen")
+    
+    new_collection_desc = st.text_input("Beschreibung:", key="new_collection_desc")
+    new_collection_tags = st.text_input("Tags (kommagetrennt):", key="new_collection_tags", help="z.B. kubernetes,docs")
+    
+    if create_collection and new_collection_name:
+        tags = [tag.strip() for tag in new_collection_tags.split(",") if tag.strip()] if new_collection_tags else []
+        success = pipeline.create_collection(new_collection_name, new_collection_desc, tags)
+        if success:
+            st.success(f"✅ Collection '{new_collection_name}' erstellt!")
+            st.rerun()
+        else:
+            st.error(f"❌ Collection '{new_collection_name}' existiert bereits!")
+    
+    # Delete collection
+    if collections:
+        st.markdown("**Collection löschen:**")
+        collection_to_delete = st.selectbox("Collection:", current_collection_names, key="delete_collection")
+        delete_collection = st.button("🗑️ Löschen", help="Collection dauerhaft löschen")
+        
+        if delete_collection:
+            if st.session_state.get('confirm_delete') != collection_to_delete:
+                st.session_state.confirm_delete = collection_to_delete
+                st.warning(f"⚠️ Klicken Sie erneut, um '{collection_to_delete}' zu löschen!")
+            else:
+                success = pipeline.delete_collection(collection_to_delete)
+                if success:
+                    st.success(f"✅ Collection '{collection_to_delete}' gelöscht!")
+                    if 'confirm_delete' in st.session_state:
+                        del st.session_state.confirm_delete
+                    st.rerun()
+                else:
+                    st.error(f"❌ Fehler beim Löschen von '{collection_to_delete}'!")
 
 # Configuration section
 if config.ui.show_debug_info:
@@ -92,8 +157,20 @@ if uploaded_files:
     if summary_parts:
         st.sidebar.info(f"Hochgeladen: {', '.join(summary_parts)}")
 
+# Collection-specific document ingestion
+ingestion_col1, ingestion_col2 = st.sidebar.columns([3, 1])
+with ingestion_col1:
+    target_collection = st.selectbox(
+        "Ziel-Collection:",
+        [c['name'] for c in collections] if collections else ["Keine Collections verfügbar"],
+        key="target_collection",
+        help="Collection für neue Dokumente"
+    )
+with ingestion_col2:
+    ingest_button = st.button("📥", help="Dokumente ingestieren")
+
 # Document ingestion mit Progress
-if st.sidebar.button("Dokumente ingestieren (in Vektor-DB)"):
+if ingest_button and target_collection != "Keine Collections verfügbar":
     with st.spinner("Dokumente werden verarbeitet..."):
         # Progress bar für verschiedene Schritte
         progress_bar = st.sidebar.progress(0)
@@ -103,16 +180,21 @@ if st.sidebar.button("Dokumente ingestieren (in Vektor-DB)"):
             status_text.text("Lade Dokumente...")
             progress_bar.progress(25)
             
-            pipeline.ingest_documents()
+            # Use collection-specific ingestion
+            success = pipeline.ingest_documents_to_collection(target_collection)
             
             progress_bar.progress(100)
             status_text.text("Fertig!")
             
-            st.sidebar.success("Dokumente erfolgreich ingestiert!")
-            
-            # Zeige Statistiken
-            collection_count = pipeline.collection.count()
-            st.sidebar.metric("Dokumente in DB", collection_count)
+            if success:
+                st.sidebar.success(f"Dokumente erfolgreich in '{target_collection}' ingestiert!")
+                
+                # Zeige Statistiken für die Collection
+                stats = pipeline.get_collection_statistics(target_collection)
+                if stats:
+                    st.sidebar.metric(f"Chunks in {target_collection}", stats.get('chunk_count', 0))
+            else:
+                st.sidebar.warning("Keine neuen Dokumente gefunden oder Fehler beim Ingestieren.")
             
         except Exception as e:
             st.sidebar.error(f"Fehler beim Ingestieren: {str(e)}")
@@ -164,107 +246,360 @@ if retrieval_method == "Hybrid (Empfohlen)":
 
 # --- Main Content for Querying ---
 
-st.header("Frage stellen")
-user_query = st.text_input("Ihre Frage:", placeholder="Was ist ein Pod in Kubernetes?")
+# === STATISTICS DASHBOARD ===
+if collections:
+    st.header("📊 Collection Dashboard")
+    
+    # Overview metrics
+    total_collections = len(collections)
+    total_chunks = sum(c.get('chunk_count', 0) for c in collections)
+    total_docs = sum(c.get('document_count', 0) for c in collections)
+    
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Collections", total_collections)
+    with col2:
+        st.metric("Gesamt Dokumente", total_docs)
+    with col3:
+        st.metric("Gesamt Chunks", total_chunks)
+    with col4:
+        st.metric("Aktive Collection", pipeline.active_collection_name)
+    
+    # Detailed collection stats
+    with st.expander("📈 Detailierte Collection-Statistiken", expanded=False):
+        for collection in collections:
+            with st.container():
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    st.markdown(f"**{collection['name']}**")
+                    if collection['description']:
+                        st.caption(collection['description'])
+                    if collection['tags']:
+                        st.caption(f"Tags: {', '.join(collection['tags'])}")
+                with col2:
+                    stats = pipeline.get_collection_statistics(collection['name'])
+                    if stats:
+                        st.metric("Chunks", stats.get('chunk_count', 0))
+                        
+                        # File type distribution
+                        file_types = stats.get('file_types', {})
+                        if file_types:
+                            type_summary = ", ".join([f"{count} {ftype.upper()}" for ftype, count in file_types.items()])
+                            st.caption(f"Dateitypen: {type_summary}")
+                
+                st.divider()
 
-# Enhanced Query Processing mit Hybrid Retrieval
+# === ADVANCED FILTERING INTERFACE ===
+st.header("🔍 Erweiterte Suche")
+
+# Query section with filtering
+col1, col2 = st.columns([3, 1])
+with col1:
+    user_query = st.text_input("Ihre Frage:", placeholder="Was ist ein Pod in Kubernetes?")
+with col2:
+    use_filters = st.checkbox("🔧 Filter verwenden", help="Aktiviere erweiterte Filterung")
+
+# Filtering interface
+filters = None
+if use_filters:
+    with st.expander("🔧 Filter-Einstellungen", expanded=True):
+        filter_tabs = st.tabs(["📁 Dateityp", "📏 Größe", "🏷️ Custom"])
+        
+        with filter_tabs[0]:  # File type filter
+            st.markdown("**Nach Dateityp filtern:**")
+            file_type_options = ["pdf", "docx", "txt"]
+            selected_types = st.multiselect("Dateitypen:", file_type_options, help="Wähle einen oder mehrere Dateitypen")
+            exclude_types = st.checkbox("Ausschließen statt einschließen", key="exclude_types")
+            
+            if selected_types:
+                file_type_filter = MetadataFilter.by_file_type(selected_types, exclude=exclude_types)
+            else:
+                file_type_filter = None
+        
+        with filter_tabs[1]:  # Size filter
+            st.markdown("**Nach Chunk-Größe filtern:**")
+            col1, col2 = st.columns(2)
+            with col1:
+                min_size = st.number_input("Min. Zeichen:", min_value=0, value=0, step=100)
+            with col2:
+                max_size = st.number_input("Max. Zeichen:", min_value=0, value=5000, step=100)
+            
+            if min_size > 0 or max_size < 5000:
+                size_filter = MetadataFilter.by_content_size(
+                    min_size=min_size if min_size > 0 else None,
+                    max_size=max_size if max_size < 5000 else None
+                )
+            else:
+                size_filter = None
+        
+        with filter_tabs[2]:  # Custom filter
+            st.markdown("**Custom Filter:**")
+            custom_field = st.text_input("Feld:", placeholder="z.B. semantic_density")
+            custom_value = st.text_input("Wert:", placeholder="z.B. 0.5")
+            custom_operator = st.selectbox("Operator:", ["equals", "greater_than", "less_than", "contains"])
+            
+            if custom_field and custom_value:
+                try:
+                    # Try to convert to number if possible
+                    try:
+                        custom_value = float(custom_value)
+                    except ValueError:
+                        pass  # Keep as string
+                    
+                    from src.metadata_filter import FilterOperator
+                    operator_map = {
+                        "equals": FilterOperator.EQUALS,
+                        "greater_than": FilterOperator.GREATER_THAN,
+                        "less_than": FilterOperator.LESS_THAN,
+                        "contains": FilterOperator.CONTAINS
+                    }
+                    
+                    custom_filter = MetadataFilter.by_custom_field(
+                        custom_field, custom_value, operator_map[custom_operator]
+                    )
+                except Exception as e:
+                    st.error(f"Fehler beim Custom Filter: {e}")
+                    custom_filter = None
+            else:
+                custom_filter = None
+        
+        # Combine filters
+        active_filters = [f for f in [file_type_filter, size_filter, custom_filter] if f is not None]
+        if active_filters:
+            if len(active_filters) == 1:
+                filters = active_filters[0]
+            else:
+                combine_operator = st.selectbox("Filter-Kombination:", ["AND", "OR"], key="filter_combine")
+                filters = MetadataFilter.combine_filters(active_filters, combine_operator)
+            
+            st.success(f"✅ {len(active_filters)} Filter aktiv")
+        else:
+            st.info("ℹ️ Keine Filter ausgewählt")
+
+# === QUERY OPTIONS ===
+query_options_col1, query_options_col2, query_options_col3 = st.columns(3)
+
+with query_options_col1:
+    search_scope = st.radio(
+        "Suchbereich:",
+        ["Aktive Collection", "Alle Collections", "Custom Collections"],
+        help="Wo soll gesucht werden?"
+    )
+
+with query_options_col2:
+    query_method = st.radio(
+        "Suchmethode:",
+        ["Hybrid (Empfohlen)", "Semantisch", "Mit Filtern"],
+        help="Wähle die Suchmethode"
+    )
+
+with query_options_col3:
+    top_k = st.slider("Max. Ergebnisse:", 1, 20, config.retrieval.default_top_k)
+
+# Custom collection selection for cross-collection search
+selected_collections = None
+if search_scope == "Custom Collections" and collections:
+    selected_collections = st.multiselect(
+        "Collections auswählen:",
+        [c['name'] for c in collections],
+        default=[pipeline.active_collection_name] if pipeline.active_collection_name else []
+    )
+
+# Enhanced Query Processing with Multi-Collection and Filtering Support
 if user_query:
-    if pipeline.collection.count() == 0:
-        st.warning("Bitte ingestieren Sie zuerst Dokumente, bevor Sie eine Frage stellen.")
+    # Check if any collections have data
+    has_data = any(c.get('chunk_count', 0) > 0 for c in collections) if collections else False
+    
+    if not has_data:
+        st.warning("Bitte ingestieren Sie zuerst Dokumente in eine Collection, bevor Sie eine Frage stellen.")
     else:
         with st.spinner("Antwort wird generiert..."):
-            # Wähle Retrieval-Methode basierend auf User-Auswahl
-            if retrieval_method == "Hybrid (Empfohlen)":
-                answer = pipeline.enhanced_answer_query(user_query)
-                retrieved_chunks = pipeline.enhanced_retriever.hybrid_retrieve(user_query, top_k=config.ui.max_context_chunks) if pipeline.enhanced_retriever else []
+            retrieved_chunks = []
+            
+            # Determine query processing based on options
+            try:
+                if search_scope == "Alle Collections":
+                    # Cross-collection search
+                    if query_method == "Mit Filtern" and filters:
+                        answer = pipeline.search_across_collections(
+                            user_query, 
+                            filters=filters,
+                            total_results=top_k
+                        )
+                        st.info("🌐 Cross-Collection Suche mit Filtern")
+                    else:
+                        answer = pipeline.search_across_collections(user_query, total_results=top_k)
+                        st.info("🌐 Cross-Collection Suche")
                 
-                # Query Analysis Info anzeigen
-                if retrieved_chunks:
-                    query_info = retrieved_chunks[0]
-                    st.info(f"🔍 Query-Typ: **{query_info.get('query_type', 'unknown').title()}** | "
-                           f"Semantic: {query_info.get('semantic_weight', 0):.2f} | "
-                           f"Keyword: {query_info.get('keyword_weight', 0):.2f}")
+                elif search_scope == "Custom Collections" and selected_collections:
+                    # Custom collection search
+                    if query_method == "Mit Filtern" and filters:
+                        answer = pipeline.search_across_collections(
+                            user_query,
+                            collection_names=selected_collections,
+                            filters=filters,
+                            total_results=top_k
+                        )
+                        st.info(f"🎯 Custom Collection Suche mit Filtern: {', '.join(selected_collections)}")
+                    else:
+                        answer = pipeline.search_across_collections(
+                            user_query,
+                            collection_names=selected_collections,
+                            total_results=top_k
+                        )
+                        st.info(f"🎯 Custom Collection Suche: {', '.join(selected_collections)}")
+                
+                else:
+                    # Single collection search (active collection)
+                    if query_method == "Mit Filtern" and filters:
+                        answer = pipeline.answer_query_with_filters(user_query, filters=filters, top_k=top_k)
+                        st.info(f"🔧 Filtered Suche in '{pipeline.active_collection_name}'")
                     
-            elif retrieval_method == "Nur Keywords":
-                # Fallback: BM25-only (wird über Enhanced Retriever mit keyword_weight=1.0 simuliert)
-                st.info("🔤 Reine Keyword-Suche aktiviert")
-                answer = pipeline.answer_query(user_query)  # Fallback auf Standard
-                retrieved_chunks = pipeline.retriever.retrieve(user_query, top_k=config.ui.max_context_chunks)
-            else:
-                # Standard semantic retrieval
-                st.info("🧠 Reine semantische Suche aktiviert")
-                answer = pipeline.answer_query(user_query)
-                retrieved_chunks = pipeline.retriever.retrieve(user_query, top_k=config.ui.max_context_chunks)
+                    elif query_method == "Hybrid (Empfohlen)":
+                        if filters:
+                            answer = pipeline.enhanced_answer_query_with_filters(user_query, filters=filters, top_k=top_k)
+                        else:
+                            answer = pipeline.enhanced_answer_query(user_query, top_k=top_k)
+                            # Get enhanced retrieval info
+                            if pipeline.enhanced_retriever:
+                                retrieved_chunks = pipeline.enhanced_retriever.hybrid_retrieve(user_query, top_k)
+                                if retrieved_chunks:
+                                    query_info = retrieved_chunks[0]
+                                    st.info(f"🔍 Hybrid Query-Typ: **{query_info.get('query_type', 'unknown').title()}** | "
+                                           f"Semantic: {query_info.get('semantic_weight', 0):.2f} | "
+                                           f"Keyword: {query_info.get('keyword_weight', 0):.2f}")
+                        
+                        st.info(f"🧠 Hybrid Retrieval in '{pipeline.active_collection_name}'")
+                    
+                    else:
+                        # Standard semantic search
+                        if filters:
+                            answer = pipeline.answer_query_with_filters(user_query, filters=filters, top_k=top_k)
+                            st.info(f"🧠 Semantische Suche mit Filtern in '{pipeline.active_collection_name}'")
+                        else:
+                            answer = pipeline.answer_query(user_query, top_k=top_k)
+                            retrieved_chunks = pipeline.retriever.retrieve(user_query, top_k=top_k)
+                            st.info(f"🧠 Semantische Suche in '{pipeline.active_collection_name}'")
+                
+            except Exception as e:
+                st.error(f"Fehler bei der Abfrage: {str(e)}")
+                answer = "Entschuldigung, es gab einen Fehler bei der Verarbeitung Ihrer Anfrage."
             
             st.subheader("🤖 Antwort:")
             st.write(answer)
 
-            # Enhanced Context Display
-            if retrieval_method == "Hybrid (Empfohlen)" and retrieved_chunks:
-                st.subheader("📄 Hybrid Retrieval Details:")
+            # Enhanced Context Display with Collection Info
+            if config.ui.show_debug_info or True:  # Always show for enhanced experience
                 
-                # Chunk Details mit Enhanced Scoring
-                for i, chunk in enumerate(retrieved_chunks):
-                    file_type = chunk['metadata'].get('file_type', 'unknown')
-                    filename = chunk['metadata']['filename']
+                # Show context details based on search method
+                if query_method == "Hybrid (Empfohlen)" and retrieved_chunks:
+                    st.subheader("📄 Hybrid Retrieval Context:")
                     
-                    # File type icon
-                    type_icons = {"pdf": "📄", "docx": "📝", "txt": "📄"}
-                    icon = type_icons.get(file_type, "📄")
-                    
-                    # Enhanced title mit Hybrid Score
-                    hybrid_score = chunk.get('hybrid_score', 0)
-                    title = f"{icon} Chunk {i+1} - {filename} ({file_type.upper()}) - Hybrid Score: {hybrid_score:.3f}"
-                    
-                    with st.expander(title, expanded=(i == 0)):
-                        st.code(chunk['content'], language=None)
+                    # Chunk Details mit Enhanced Scoring
+                    for i, chunk in enumerate(retrieved_chunks):
+                        file_type = chunk['metadata'].get('file_type', 'unknown')
+                        filename = chunk['metadata']['filename']
+                        collection_name = chunk['metadata'].get('collection_name', pipeline.active_collection_name)
                         
-                        # Detailed Scoring Metrics
-                        col1, col2, col3, col4 = st.columns(4)
-                        with col1:
-                            semantic_score = chunk.get('semantic_score', 0)
-                            st.metric("Semantic", f"{semantic_score:.3f}")
-                        with col2:
-                            bm25_score = chunk.get('bm25_score', 0)
-                            st.metric("BM25", f"{bm25_score:.3f}")
-                        with col3:
-                            st.metric("Hybrid", f"{hybrid_score:.3f}")
-                        with col4:
-                            method = chunk.get('retrieval_method', 'standard')
-                            st.metric("Method", method)
+                        # File type icon
+                        type_icons = {"pdf": "📄", "docx": "📝", "txt": "📄"}
+                        icon = type_icons.get(file_type, "📄")
                         
-                        # Additional metadata
-                        if 'semantic_rank' in chunk and 'bm25_rank' in chunk:
-                            st.caption(f"Semantic Rank: {chunk['semantic_rank']} | BM25 Rank: {chunk['bm25_rank']}")
-            
-            else:
-                # Standard Context Display
-                st.subheader("📄 Verwendeter Kontext:")
-                retrieved_chunks = retrieved_chunks if 'retrieved_chunks' in locals() else pipeline.retriever.retrieve(user_query, top_k=3)
-            
-            if retrieved_chunks:
-                for i, chunk in enumerate(retrieved_chunks):
-                    file_type = chunk['metadata'].get('file_type', 'unknown')
-                    filename = chunk['metadata']['filename']
-                    distance = chunk['distance']
-                    
-                    # File type icon
-                    type_icons = {"pdf": "📄", "docx": "📝", "txt": "📄"}
-                    icon = type_icons.get(file_type, "📄")
-                    
-                    with st.expander(
-                        f"{icon} Chunk {i+1} - {filename} ({file_type.upper()}) - Relevanz: {1-distance:.3f}",
-                        expanded=(i == 0)  # Erstes Chunk expanded
-                    ):
-                        st.code(chunk['content'], language=None)
+                        # Enhanced title mit Hybrid Score
+                        hybrid_score = chunk.get('hybrid_score', 0)
+                        title = f"{icon} [{collection_name}] {filename} ({file_type.upper()}) - Score: {hybrid_score:.3f}"
                         
-                        # Zusätzliche Metadaten
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.metric("Position", chunk['metadata'].get('position', 'N/A'))
-                        with col2:
-                            st.metric("Chunk-Größe", len(chunk['content']))
-                        with col3:
-                            st.metric("Distanz", f"{distance:.4f}")
-            else:
-                st.info("Kein relevanter Kontext gefunden.")
+                        with st.expander(title, expanded=(i == 0)):
+                            st.code(chunk['content'], language=None)
+                            
+                            # Detailed Scoring Metrics
+                            col1, col2, col3, col4 = st.columns(4)
+                            with col1:
+                                semantic_score = chunk.get('semantic_score', 0)
+                                st.metric("Semantic", f"{semantic_score:.3f}")
+                            with col2:
+                                bm25_score = chunk.get('bm25_score', 0)
+                                st.metric("BM25", f"{bm25_score:.3f}")
+                            with col3:
+                                st.metric("Hybrid", f"{hybrid_score:.3f}")
+                            with col4:
+                                method = chunk.get('retrieval_method', 'hybrid')
+                                st.metric("Method", method)
+                            
+                            # Additional metadata with collection info
+                            metadata_cols = st.columns(4)
+                            with metadata_cols[0]:
+                                st.metric("Collection", collection_name)
+                            with metadata_cols[1]:
+                                st.metric("Position", chunk['metadata'].get('position', 'N/A'))
+                            with metadata_cols[2]:
+                                st.metric("Chunk Size", len(chunk['content']))
+                            with metadata_cols[3]:
+                                if 'semantic_rank' in chunk and 'bm25_rank' in chunk:
+                                    st.caption(f"Ranks: S{chunk['semantic_rank']} | B{chunk['bm25_rank']}")
+                
+                else:
+                    # Enhanced Standard Context Display with Collection Support
+                    context_title = "📄 Kontext-Details:"
+                    if search_scope != "Aktive Collection":
+                        context_title = f"📄 {search_scope} Kontext:"
+                    
+                    st.subheader(context_title)
+                    
+                    # Try to get context chunks for display
+                    if not retrieved_chunks and search_scope == "Aktive Collection":
+                        try:
+                            retrieved_chunks = pipeline.retriever.retrieve(user_query, top_k=min(top_k, 5))
+                        except:
+                            retrieved_chunks = []
+                    
+                    if retrieved_chunks:
+                        for i, chunk in enumerate(retrieved_chunks):
+                            file_type = chunk['metadata'].get('file_type', 'unknown')
+                            filename = chunk['metadata']['filename']
+                            collection_name = chunk['metadata'].get('collection_name', pipeline.active_collection_name)
+                            
+                            # File type icon
+                            type_icons = {"pdf": "📄", "docx": "📝", "txt": "📄"}
+                            icon = type_icons.get(file_type, "📄")
+                            
+                            # Handle different scoring types
+                            score_info = ""
+                            if 'distance' in chunk:
+                                relevance = 1 - chunk['distance']
+                                score_info = f"Relevanz: {relevance:.3f}"
+                            elif 'hybrid_score' in chunk:
+                                score_info = f"Score: {chunk['hybrid_score']:.3f}"
+                            
+                            title = f"{icon} [{collection_name}] {filename} ({file_type.upper()})"
+                            if score_info:
+                                title += f" - {score_info}"
+                            
+                            with st.expander(title, expanded=(i == 0)):
+                                st.code(chunk['content'], language=None)
+                                
+                                # Enhanced metadata display
+                                metadata_cols = st.columns(5)
+                                with metadata_cols[0]:
+                                    st.metric("Collection", collection_name)
+                                with metadata_cols[1]:
+                                    st.metric("File Type", file_type.upper())
+                                with metadata_cols[2]:
+                                    st.metric("Position", chunk['metadata'].get('position', 'N/A'))
+                                with metadata_cols[3]:
+                                    st.metric("Size", len(chunk['content']))
+                                with metadata_cols[4]:
+                                    if 'distance' in chunk:
+                                        st.metric("Distance", f"{chunk['distance']:.4f}")
+                                    elif 'hybrid_score' in chunk:
+                                        st.metric("Score", f"{chunk['hybrid_score']:.3f}")
+                                
+                                # Show filter match info if filters were used
+                                if filters:
+                                    st.caption("✅ Entspricht den angewendeten Filtern")
+                    
+                    else:
+                        if filters:
+                            st.warning("🔍 Keine Ergebnisse entsprechen den angewendeten Filtern. Versuchen Sie weniger restriktive Filter.")
+                        else:
+                            st.info("ℹ️ Kein relevanter Kontext gefunden.")
