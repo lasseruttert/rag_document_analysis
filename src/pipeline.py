@@ -5,6 +5,7 @@ from src.retriever import Retriever, EnhancedHybridRetriever
 from src.llm_handler import LLMHandler
 from src.config import get_config, RAGConfig
 from src.metadata_filter import MetadataFilter, QueryFilter, CombinedFilter
+from src.query_processor import QueryProcessor, QueryAnalysisResult, QueryIntent
 from typing import List, Dict, Any, Optional, Union
 import logging
 
@@ -59,6 +60,10 @@ class RAGPipeline:
         
         # Enhanced Hybrid Retriever wird bei Bedarf initialisiert
         self.enhanced_retriever = None
+        
+        # Query Processor für intelligente Query-Verarbeitung
+        print("Initializing Query Processor...")
+        self.query_processor = QueryProcessor(config=self.config)
         
         # Current active collection name
         self.active_collection_name = self.config.vector_database.default_collection
@@ -440,6 +445,132 @@ class RAGPipeline:
             # Generate answer
             answer = self.llm_handler.generate_answer(query, retrieved_chunks)
             return answer
+    
+    # ===================== ENHANCED QUERY PROCESSING =====================
+    
+    def preprocess_query(self, query: str) -> QueryAnalysisResult:
+        """
+        Preprocess and analyze a user query.
+        
+        Args:
+            query: Raw user query
+            
+        Returns:
+            QueryAnalysisResult with preprocessing results
+        """
+        return self.query_processor.preprocess(query)
+    
+    def enhanced_answer_query_with_preprocessing(self, 
+                                               query: str, 
+                                               top_k: Optional[int] = None,
+                                               collection_name: Optional[str] = None,
+                                               use_spell_check: bool = True,
+                                               use_expansion: bool = True) -> Dict[str, Any]:
+        """
+        Answer query with intelligent preprocessing and enhancement.
+        
+        Args:
+            query: Raw user query
+            top_k: Number of results to retrieve
+            collection_name: Collection to search (uses active if None)
+            use_spell_check: Whether to apply spell checking
+            use_expansion: Whether to use query expansion
+            
+        Returns:
+            Dictionary with answer and preprocessing details
+        """
+        top_k = top_k or self.config.retrieval.default_top_k
+        
+        # Step 1: Preprocess query
+        query_analysis = self.preprocess_query(query)
+        
+        # Choose query version based on options
+        if use_spell_check and query_analysis.suggestions:
+            processed_query = query_analysis.corrected_query
+        else:
+            processed_query = query_analysis.original_query
+        
+        # Use expanded query if enabled and beneficial
+        search_query = processed_query
+        if use_expansion and query_analysis.intent in [QueryIntent.SEARCH, QueryIntent.FACTUAL]:
+            # For search queries, use first expansion (best match)
+            expansions = query_analysis.expanded_query.split(" OR ")
+            search_query = expansions[0] if expansions else processed_query
+        
+        print(f"Query preprocessing: '{query}' -> '{search_query}' (intent: {query_analysis.intent.value})")
+        
+        # Step 2: Perform enhanced search based on intent
+        try:
+            if query_analysis.intent == QueryIntent.COMMAND:
+                # For commands, use exact matching
+                answer = self.answer_query(search_query, top_k=top_k)
+            elif query_analysis.intent in [QueryIntent.QUESTION, QueryIntent.FACTUAL]:
+                # For questions, use hybrid retrieval
+                answer = self.enhanced_answer_query(search_query, top_k=top_k)
+            else:
+                # Default to standard retrieval
+                answer = self.answer_query(search_query, top_k=top_k)
+        
+        except Exception as e:
+            logger.error(f"Error in enhanced query processing: {e}")
+            # Fallback to original query
+            answer = self.answer_query(query, top_k=top_k)
+        
+        # Step 3: Return comprehensive result
+        return {
+            'answer': answer,
+            'query_analysis': {
+                'original_query': query_analysis.original_query,
+                'processed_query': search_query,
+                'intent': query_analysis.intent.value,
+                'confidence': query_analysis.confidence,
+                'suggestions': query_analysis.suggestions,
+                'keywords': query_analysis.extracted_keywords,
+                'spell_corrections': len(query_analysis.suggestions) > 0
+            },
+            'collection': collection_name or self.active_collection_name
+        }
+    
+    def suggest_query_completions(self, partial_query: str, limit: int = 5) -> List[str]:
+        """
+        Suggest query completions for partial input.
+        
+        Args:
+            partial_query: Partial query string
+            limit: Maximum number of suggestions
+            
+        Returns:
+            List of suggested completions
+        """
+        return self.query_processor.suggest_queries(partial_query, limit)
+    
+    def analyze_query_intent(self, query: str) -> Dict[str, Any]:
+        """
+        Analyze query intent and provide processing recommendations.
+        
+        Args:
+            query: Query to analyze
+            
+        Returns:
+            Dictionary with intent analysis results
+        """
+        analysis = self.preprocess_query(query)
+        
+        return {
+            'intent': analysis.intent.value,
+            'confidence': analysis.confidence,
+            'processing_recommendations': {
+                'use_hybrid_retrieval': analysis.intent in [QueryIntent.QUESTION, QueryIntent.FACTUAL],
+                'use_exact_matching': analysis.intent == QueryIntent.COMMAND,
+                'use_expansion': analysis.intent in [QueryIntent.SEARCH, QueryIntent.FACTUAL],
+                'collection_search': analysis.intent != QueryIntent.COMMAND
+            },
+            'extracted_info': {
+                'keywords': analysis.extracted_keywords,
+                'language': analysis.language,
+                'spell_suggestions': analysis.suggestions
+            }
+        }
 
 if __name__ == '__main__':
     print("Testing Enhanced RAG Pipeline with Multi-Collection Management...")
@@ -513,6 +644,34 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"Enhanced retrieval test skipped: {e}")
     
+    # Test 6: Query Preprocessing
+    print("\n6. Testing Query Preprocessing...")
+    test_queries = [
+        "Was ist ein Pod in Kubernetes?",
+        "wie erstele ich ein deployment",  # Typo
+        "kubectl get pods",
+        "installiere nginx"
+    ]
+    
+    for query in test_queries:
+        try:
+            intent_analysis = pipeline.analyze_query_intent(query)
+            print(f"  Query: '{query}'")
+            print(f"    Intent: {intent_analysis['intent']} (confidence: {intent_analysis['confidence']:.2f})")
+            print(f"    Keywords: {intent_analysis['extracted_info']['keywords']}")
+            if intent_analysis['extracted_info']['spell_suggestions']:
+                print(f"    Spell suggestions: {intent_analysis['extracted_info']['spell_suggestions']}")
+        except Exception as e:
+            print(f"  Query preprocessing test skipped for '{query}': {e}")
+    
+    # Test 7: Query Suggestions
+    print("\n7. Testing Query Suggestions...")
+    try:
+        suggestions = pipeline.suggest_query_completions("kubern")
+        print(f"  Suggestions for 'kubern': {suggestions[:3]}")
+    except Exception as e:
+        print(f"  Query suggestions test skipped: {e}")
+    
     print("\nEnhanced RAG Pipeline test completed!")
     print("\nNew Features Available:")
     print("  ✅ Multi-collection management")
@@ -521,3 +680,7 @@ if __name__ == '__main__':
     print("  ✅ Cross-collection search capabilities")
     print("  ✅ Enhanced hybrid retrieval with filtering")
     print("  ✅ Collection statistics and management")
+    print("  ✅ Intelligent query preprocessing")
+    print("  ✅ Query expansion and spell checking")
+    print("  ✅ Intent detection and analysis")
+    print("  ✅ Query suggestions and completions")

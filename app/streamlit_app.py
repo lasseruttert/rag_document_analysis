@@ -292,12 +292,90 @@ if collections:
 # === ADVANCED FILTERING INTERFACE ===
 st.header("🔍 Erweiterte Suche")
 
-# Query section with filtering
-col1, col2 = st.columns([3, 1])
-with col1:
-    user_query = st.text_input("Ihre Frage:", placeholder="Was ist ein Pod in Kubernetes?")
-with col2:
-    use_filters = st.checkbox("🔧 Filter verwenden", help="Aktiviere erweiterte Filterung")
+# Enhanced Query Input with Preprocessing
+st.markdown("### Intelligente Query-Eingabe")
+
+# Query input with suggestions
+query_col1, query_col2, query_col3 = st.columns([4, 1, 1])
+with query_col1:
+    user_query = st.text_input("Ihre Frage:", placeholder="Was ist ein Pod in Kubernetes?", key="main_query")
+with query_col2:
+    use_preprocessing = st.checkbox("Smart Query", value=True, help="Intelligente Query-Verarbeitung aktivieren")
+with query_col3:
+    use_filters = st.checkbox("Filter", help="Erweiterte Filterung aktivieren")
+
+# Query Analysis and Suggestions
+if user_query and use_preprocessing:
+    try:
+        # Analyze query intent and provide real-time feedback
+        query_analysis = pipeline.analyze_query_intent(user_query)
+        
+        # Display query analysis in a compact info box
+        analysis_col1, analysis_col2, analysis_col3 = st.columns(3)
+        with analysis_col1:
+            intent_color = {
+                'question': 'blue',
+                'command': 'green', 
+                'search': 'orange',
+                'factual': 'blue',
+                'procedural': 'violet',
+                'comparison': 'red',
+                'unknown': 'gray'
+            }.get(query_analysis['intent'], 'gray')
+            st.markdown(f"**Intent:** :{intent_color}[{query_analysis['intent'].upper()}]")
+        
+        with analysis_col2:
+            confidence = query_analysis['confidence']
+            confidence_text = "Hoch" if confidence > 0.8 else "Mittel" if confidence > 0.6 else "Niedrig"
+            st.markdown(f"**Konfidenz:** {confidence_text} ({confidence:.1f})")
+        
+        with analysis_col3:
+            keywords = query_analysis['extracted_info']['keywords']
+            if keywords:
+                st.markdown(f"**Keywords:** {', '.join(keywords[:3])}")
+        
+        # Show spelling suggestions if available
+        spell_suggestions = query_analysis['extracted_info']['spell_suggestions']
+        if spell_suggestions:
+            st.info(f"Rechtschreibvorschläge: {', '.join(spell_suggestions)}")
+        
+    except Exception as e:
+        st.warning(f"Query-Analyse nicht verfügbar: {str(e)}")
+
+# Query Suggestions
+if len(user_query) >= 3 and use_preprocessing:
+    try:
+        suggestions = pipeline.suggest_query_completions(user_query, limit=3)
+        if suggestions and user_query.lower() not in [s.lower() for s in suggestions]:
+            st.markdown("**Vorschläge:**")
+            suggestion_cols = st.columns(len(suggestions))
+            for i, suggestion in enumerate(suggestions):
+                with suggestion_cols[i]:
+                    if st.button(suggestion, key=f"suggestion_{i}", help="Klicken zum Übernehmen"):
+                        st.session_state.main_query = suggestion
+                        st.rerun()
+    except Exception as e:
+        pass  # Silently ignore suggestion errors
+
+# Advanced Query Options
+with st.expander("Erweiterte Query-Optionen", expanded=False):
+    query_opt_col1, query_opt_col2 = st.columns(2)
+    
+    with query_opt_col1:
+        enable_spell_check = st.checkbox("Rechtschreibkorrektur", value=True, help="Automatische Fehlerkorrektur")
+        enable_expansion = st.checkbox("Query-Erweiterung", value=True, help="Synonyme und verwandte Begriffe hinzufügen")
+    
+    with query_opt_col2:
+        intent_override = st.selectbox(
+            "Intent überschreiben:", 
+            ["Auto", "Question", "Command", "Search", "Factual"],
+            help="Manuelle Intent-Festlegung"
+        )
+        processing_mode = st.radio(
+            "Verarbeitungsmodus:",
+            ["Intelligent", "Standard", "Exact Match"],
+            help="Wähle die Query-Verarbeitungsstrategie"
+        )
 
 # Filtering interface
 filters = None
@@ -416,74 +494,106 @@ if user_query:
         with st.spinner("Antwort wird generiert..."):
             retrieved_chunks = []
             
-            # Determine query processing based on options
-            try:
-                if search_scope == "Alle Collections":
-                    # Cross-collection search
-                    if query_method == "Mit Filtern" and filters:
-                        answer = pipeline.search_across_collections(
-                            user_query, 
-                            filters=filters,
-                            total_results=top_k
-                        )
-                        st.info("🌐 Cross-Collection Suche mit Filtern")
-                    else:
-                        answer = pipeline.search_across_collections(user_query, total_results=top_k)
-                        st.info("🌐 Cross-Collection Suche")
-                
-                elif search_scope == "Custom Collections" and selected_collections:
-                    # Custom collection search
-                    if query_method == "Mit Filtern" and filters:
-                        answer = pipeline.search_across_collections(
-                            user_query,
-                            collection_names=selected_collections,
-                            filters=filters,
-                            total_results=top_k
-                        )
-                        st.info(f"🎯 Custom Collection Suche mit Filtern: {', '.join(selected_collections)}")
-                    else:
-                        answer = pipeline.search_across_collections(
-                            user_query,
-                            collection_names=selected_collections,
-                            total_results=top_k
-                        )
-                        st.info(f"🎯 Custom Collection Suche: {', '.join(selected_collections)}")
-                
-                else:
-                    # Single collection search (active collection)
-                    if query_method == "Mit Filtern" and filters:
-                        answer = pipeline.answer_query_with_filters(user_query, filters=filters, top_k=top_k)
-                        st.info(f"🔧 Filtered Suche in '{pipeline.active_collection_name}'")
+            # Apply intelligent preprocessing if enabled
+            final_query = user_query
+            query_info = None
+            
+            if use_preprocessing and processing_mode == "Intelligent":
+                try:
+                    # Use enhanced preprocessing
+                    result = pipeline.enhanced_answer_query_with_preprocessing(
+                        user_query,
+                        top_k=top_k,
+                        collection_name=selected_collections[0] if search_scope == "Custom Collections" and selected_collections else None,
+                        use_spell_check=enable_spell_check,
+                        use_expansion=enable_expansion
+                    )
                     
-                    elif query_method == "Hybrid (Empfohlen)":
-                        if filters:
-                            answer = pipeline.enhanced_answer_query_with_filters(user_query, filters=filters, top_k=top_k)
+                    answer = result['answer']
+                    query_info = result['query_analysis']
+                    final_query = query_info['processed_query']
+                    
+                    # Show preprocessing info
+                    if query_info['spell_corrections']:
+                        st.success(f"Query verbessert: '{user_query}' → '{final_query}'")
+                    
+                    st.info(f"Intelligente Verarbeitung: {query_info['intent']} (Konfidenz: {query_info['confidence']:.2f})")
+                    
+                except Exception as e:
+                    st.warning(f"Intelligente Verarbeitung fehlgeschlagen, verwende Standard: {str(e)}")
+                    final_query = user_query
+                    query_info = None
+            
+            # If not using intelligent processing or it failed, use standard processing
+            if not query_info:
+                # Determine query processing based on options
+                try:
+                    if search_scope == "Alle Collections":
+                        # Cross-collection search
+                        if query_method == "Mit Filtern" and filters:
+                            answer = pipeline.search_across_collections(
+                                final_query, 
+                                filters=filters,
+                                total_results=top_k
+                            )
+                            st.info("Cross-Collection Suche mit Filtern")
                         else:
-                            answer = pipeline.enhanced_answer_query(user_query, top_k=top_k)
-                            # Get enhanced retrieval info
-                            if pipeline.enhanced_retriever:
-                                retrieved_chunks = pipeline.enhanced_retriever.hybrid_retrieve(user_query, top_k)
-                                if retrieved_chunks:
-                                    query_info = retrieved_chunks[0]
-                                    st.info(f"🔍 Hybrid Query-Typ: **{query_info.get('query_type', 'unknown').title()}** | "
-                                           f"Semantic: {query_info.get('semantic_weight', 0):.2f} | "
-                                           f"Keyword: {query_info.get('keyword_weight', 0):.2f}")
+                            answer = pipeline.search_across_collections(final_query, total_results=top_k)
+                            st.info("Cross-Collection Suche")
+                    
+                    elif search_scope == "Custom Collections" and selected_collections:
+                        # Custom collection search
+                        if query_method == "Mit Filtern" and filters:
+                            answer = pipeline.search_across_collections(
+                                final_query,
+                                collection_names=selected_collections,
+                                filters=filters,
+                                total_results=top_k
+                            )
+                            st.info(f"Custom Collection Suche mit Filtern: {', '.join(selected_collections)}")
+                        else:
+                            answer = pipeline.search_across_collections(
+                                final_query,
+                                collection_names=selected_collections,
+                                total_results=top_k
+                            )
+                            st.info(f"Custom Collection Suche: {', '.join(selected_collections)}")
+                    
+                    else:
+                        # Single collection search (active collection)
+                        if query_method == "Mit Filtern" and filters:
+                            answer = pipeline.answer_query_with_filters(final_query, filters=filters, top_k=top_k)
+                            st.info(f"Filtered Suche in '{pipeline.active_collection_name}'")
+                    
+                        elif query_method == "Hybrid (Empfohlen)":
+                            if filters:
+                                answer = pipeline.enhanced_answer_query_with_filters(final_query, filters=filters, top_k=top_k)
+                            else:
+                                answer = pipeline.enhanced_answer_query(final_query, top_k=top_k)
+                                # Get enhanced retrieval info
+                                if pipeline.enhanced_retriever:
+                                    retrieved_chunks = pipeline.enhanced_retriever.hybrid_retrieve(final_query, top_k)
+                                    if retrieved_chunks:
+                                        query_info_retrieval = retrieved_chunks[0]
+                                        st.info(f"Hybrid Query-Typ: **{query_info_retrieval.get('query_type', 'unknown').title()}** | "
+                                               f"Semantic: {query_info_retrieval.get('semantic_weight', 0):.2f} | "
+                                               f"Keyword: {query_info_retrieval.get('keyword_weight', 0):.2f}")
+                            
+                            st.info(f"Hybrid Retrieval in '{pipeline.active_collection_name}'")
                         
-                        st.info(f"🧠 Hybrid Retrieval in '{pipeline.active_collection_name}'")
-                    
-                    else:
-                        # Standard semantic search
-                        if filters:
-                            answer = pipeline.answer_query_with_filters(user_query, filters=filters, top_k=top_k)
-                            st.info(f"🧠 Semantische Suche mit Filtern in '{pipeline.active_collection_name}'")
                         else:
-                            answer = pipeline.answer_query(user_query, top_k=top_k)
-                            retrieved_chunks = pipeline.retriever.retrieve(user_query, top_k=top_k)
-                            st.info(f"🧠 Semantische Suche in '{pipeline.active_collection_name}'")
+                            # Standard semantic search
+                            if filters:
+                                answer = pipeline.answer_query_with_filters(final_query, filters=filters, top_k=top_k)
+                                st.info(f"Semantische Suche mit Filtern in '{pipeline.active_collection_name}'")
+                            else:
+                                answer = pipeline.answer_query(final_query, top_k=top_k)
+                                retrieved_chunks = pipeline.retriever.retrieve(final_query, top_k=top_k)
+                                st.info(f"Semantische Suche in '{pipeline.active_collection_name}'")
                 
-            except Exception as e:
-                st.error(f"Fehler bei der Abfrage: {str(e)}")
-                answer = "Entschuldigung, es gab einen Fehler bei der Verarbeitung Ihrer Anfrage."
+                except Exception as e:
+                    st.error(f"Fehler bei der Abfrage: {str(e)}")
+                    answer = "Entschuldigung, es gab einen Fehler bei der Verarbeitung Ihrer Anfrage."
             
             st.subheader("🤖 Antwort:")
             st.write(answer)
