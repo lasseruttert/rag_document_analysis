@@ -583,13 +583,14 @@ def build_chunk(sentences: List[Dict], filename: str, chunk_id: int, file_type: 
         "metadata": {
             "filename": filename,
             "file_type": file_type,
+            "position": chunk_id,  # Chunk position in document
             "chunk_id": f"{filename}-{chunk_id}",
             "chunk_size": len(content),
             "sentence_count": len(sentences),
             "contains_heading": any(s['is_heading'] for s in sentences),
-            "paragraph_indices": list(set(s['paragraph_idx'] for s in sentences)),
+            "paragraph_indices": ",".join(map(str, sorted(set(s['paragraph_idx'] for s in sentences)))),  # Convert list to string
             "semantic_density": calculate_semantic_density(content),
-            "keyword_tags": extract_keywords(content)
+            "keyword_tags": ",".join(extract_keywords(content))  # Convert list to string
         }
     }
 

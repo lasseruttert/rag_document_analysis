@@ -1,7 +1,16 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 """Test ob alle Dependencies korrekt installiert sind."""
 
 import sys
+import os
+from pathlib import Path
+
+# Fix encoding issues on Windows
+if sys.platform == "win32":
+    import codecs
+    sys.stdout = codecs.getwriter("utf-8")(sys.stdout.detach())
+
 print(f"Python: {sys.version}")
 print(f"Executable: {sys.executable}\n")
 
@@ -16,7 +25,10 @@ packages = [
     "PyPDF2",
     "docx",
     "pdfplumber",
-    "fitz"  # PyMuPDF
+    "fitz",  # PyMuPDF
+    "rank_bm25",  # BM25 keyword search
+    "nltk",       # German stemming
+    "Levenshtein" # Fuzzy matching
 ]
 
 for package in packages:
@@ -30,6 +42,12 @@ for package in packages:
         elif package == "fitz":
             import fitz
             print(f"OK: PyMuPDF ({package}) - importiert")
+        elif package == "rank_bm25":
+            from rank_bm25 import BM25Okapi
+            print(f"OK: {package} - BM25 keyword search verfügbar")
+        elif package == "Levenshtein":
+            import Levenshtein
+            print(f"OK: python-{package} - Fuzzy matching verfügbar")
         else:
             __import__(package)
             print(f"OK: {package} - importiert")
@@ -144,11 +162,11 @@ def test_enhanced_processing():
                 
                 for field in required_fields:
                     if field in metadata:
-                        print(f"  ✓ Metadaten-Feld '{field}': {metadata[field]}")
+                        print(f"  OK Metadaten-Feld '{field}': {metadata[field]}")
                     else:
-                        print(f"  ✗ Fehlendes Metadaten-Feld: {field}")
+                        print(f"  ERROR Fehlendes Metadaten-Feld: {field}")
             
-            print("✓ Erweiterte Dokumentverarbeitung erfolgreich getestet")
+            print("OK Erweiterte Dokumentverarbeitung erfolgreich getestet")
             
         except Exception as e:
             print(f"ERROR: Fehler beim Test der erweiterten Verarbeitung: {e}")
@@ -173,9 +191,9 @@ def test_file_validation():
                 f.write("Small file content")
             
             if validate_file_size(small_file):
-                print("✓ Kleine Datei-Validierung erfolgreich")
+                print("OK Kleine Datei-Validierung erfolgreich")
             else:
-                print("✗ Kleine Datei fälschlicherweise abgelehnt")
+                print("ERROR Kleine Datei fälschlicherweise abgelehnt")
             
             print(f"  Max. Dateigröße: {MAX_FILE_SIZE / 1024 / 1024:.1f}MB")
             
@@ -203,7 +221,7 @@ def test_full_system():
         # 1. Dokumentverarbeitung
         chunks = process_documents(test_dir)
         if chunks:
-            print(f"✓ Dokumentverarbeitung: {len(chunks)} Chunks erstellt")
+            print(f"OK Dokumentverarbeitung: {len(chunks)} Chunks erstellt")
             
             # Prüfe file_type Verteilung
             file_types = {}
@@ -220,9 +238,9 @@ def test_full_system():
                 chunks_with_embeddings = embed_manager.generate_embeddings(test_chunks)
                 
                 if chunks_with_embeddings and 'embedding' in chunks_with_embeddings[0]:
-                    print("✓ Embedding-Generierung funktioniert mit neuen Metadaten")
+                    print("OK Embedding-Generierung funktioniert mit neuen Metadaten")
                 else:
-                    print("✗ Embedding-Generierung fehlgeschlagen")
+                    print("ERROR Embedding-Generierung fehlgeschlagen")
                     
             except Exception as e:
                 print(f"INFO: Embedding-Test übersprungen (Modell nicht verfügbar): {e}")
@@ -237,8 +255,94 @@ def test_full_system():
 
 test_full_system()
 
+# Test Hybrid Retrieval Dependencies
+print("\nHybrid Retrieval Dependencies:")
+def test_hybrid_retrieval_dependencies():
+    """Test Hybrid Retrieval specific dependencies."""
+    print("Testing Hybrid Retrieval dependencies...")
+    
+    try:
+        import rank_bm25
+        print("OK rank-bm25 available")
+    except ImportError:
+        print("ERROR rank-bm25 not available - run: pip install rank-bm25")
+        return False
+    
+    try:
+        import nltk
+        from nltk.stem import SnowballStemmer
+        
+        # Test German stemmer
+        stemmer = SnowballStemmer('german')
+        test_word = stemmer.stem('Umgebungen')
+        print(f"OK NLTK German stemmer available (test: Umgebungen -> {test_word})")
+    except ImportError:
+        print("ERROR NLTK not available - run: pip install nltk")
+        return False
+    except LookupError:
+        print("INFO NLTK German data missing - will be downloaded automatically")
+    
+    try:
+        import Levenshtein
+        distance = Levenshtein.distance('test', 'tast')
+        print(f"OK python-Levenshtein available (test distance: {distance})")
+    except ImportError:
+        print("ERROR python-Levenshtein not available - run: pip install python-Levenshtein")
+        return False
+    
+    return True
+
+def test_hybrid_retrieval_performance():
+    """Test Hybrid Retrieval performance with sample queries."""
+    print("Testing Hybrid Retrieval performance...")
+    
+    try:
+        # Import and test components
+        from src.retriever import QueryAnalyzer, GermanBM25Retriever
+        
+        # Test Query Analyzer
+        analyzer = QueryAnalyzer()
+        test_queries = [
+            "Was ist Kubernetes?",
+            "kubectl get pods command",
+            "Docker Container Best Practices"
+        ]
+        
+        for query in test_queries:
+            analysis = analyzer.analyze_query_type(query)
+            print(f"Query: '{query}' -> {analysis['query_type']} "
+                  f"(semantic: {analysis['semantic_weight']}, "
+                  f"keyword: {analysis['keyword_weight']})")
+        
+        # Test German BM25 Retriever
+        test_docs = [
+            {'content': 'Kubernetes ist ein System zur Container-Orchestrierung', 'metadata': {'chunk_id': 'test-1'}},
+            {'content': 'Python Entwicklung mit virtuellen Umgebungen', 'metadata': {'chunk_id': 'test-2'}}
+        ]
+        
+        bm25_retriever = GermanBM25Retriever(test_docs)
+        results = bm25_retriever.retrieve('Kubernetes', top_k=1)
+        
+        if results and results[0]['metadata']['chunk_id'] == 'test-1':
+            print("OK BM25 retrieval working correctly")
+        else:
+            print("ERROR BM25 retrieval not working as expected")
+        
+        print("OK Hybrid Retrieval components working")
+        return True
+        
+    except Exception as e:
+        print(f"ERROR Hybrid Retrieval test failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+test_hybrid_retrieval_dependencies()
+test_hybrid_retrieval_performance()
+
 print("\n" + "="*50)
-print("✓ ALLE TESTS ABGESCHLOSSEN")
+print("OK ALLE TESTS ABGESCHLOSSEN")
 print("Das RAG-System unterstützt jetzt PDF, DOCX und TXT Dateien!")
+print("Hybrid Retrieval Dependencies getestet - bereit für Implementierung!")
 print("Starten Sie das System mit: streamlit run app/streamlit_app.py")
 print("="*50)

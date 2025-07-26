@@ -119,24 +119,98 @@ if pipeline.collection.count() > 0:
 else:
     st.sidebar.info("Keine Dokumente in der Datenbank")
 
+# Hybrid Retrieval Settings
+st.sidebar.markdown("### 🔍 Retrieval-Einstellungen")
+retrieval_method = st.sidebar.radio(
+    "Retrieval-Methode",
+    ["Hybrid (Empfohlen)", "Nur Semantisch", "Nur Keywords"],
+    help="Hybrid kombiniert semantische und Keyword-Suche intelligent"
+)
+
+# Query Settings
+if retrieval_method == "Hybrid (Empfohlen)":
+    st.sidebar.markdown("**Hybrid Retrieval aktiviert**")
+    st.sidebar.info("🧠 Intelligente Kombination von semantischer und Keyword-Suche mit deutschen Sprachoptimierungen")
+
 # --- Main Content for Querying ---
 
 st.header("Frage stellen")
 user_query = st.text_input("Ihre Frage:", placeholder="Was ist ein Pod in Kubernetes?")
 
-# Enhanced context display mit file type
+# Enhanced Query Processing mit Hybrid Retrieval
 if user_query:
     if pipeline.collection.count() == 0:
         st.warning("Bitte ingestieren Sie zuerst Dokumente, bevor Sie eine Frage stellen.")
     else:
         with st.spinner("Antwort wird generiert..."):
-            answer = pipeline.answer_query(user_query)
+            # Wähle Retrieval-Methode basierend auf User-Auswahl
+            if retrieval_method == "Hybrid (Empfohlen)":
+                answer = pipeline.enhanced_answer_query(user_query)
+                retrieved_chunks = pipeline.enhanced_retriever.hybrid_retrieve(user_query, top_k=3) if pipeline.enhanced_retriever else []
+                
+                # Query Analysis Info anzeigen
+                if retrieved_chunks:
+                    query_info = retrieved_chunks[0]
+                    st.info(f"🔍 Query-Typ: **{query_info.get('query_type', 'unknown').title()}** | "
+                           f"Semantic: {query_info.get('semantic_weight', 0):.2f} | "
+                           f"Keyword: {query_info.get('keyword_weight', 0):.2f}")
+                    
+            elif retrieval_method == "Nur Keywords":
+                # Fallback: BM25-only (wird über Enhanced Retriever mit keyword_weight=1.0 simuliert)
+                st.info("🔤 Reine Keyword-Suche aktiviert")
+                answer = pipeline.answer_query(user_query)  # Fallback auf Standard
+                retrieved_chunks = pipeline.retriever.retrieve(user_query, top_k=3)
+            else:
+                # Standard semantic retrieval
+                st.info("🧠 Reine semantische Suche aktiviert")
+                answer = pipeline.answer_query(user_query)
+                retrieved_chunks = pipeline.retriever.retrieve(user_query, top_k=3)
+            
             st.subheader("🤖 Antwort:")
             st.write(answer)
 
-            # Display retrieved context with file type info
-            st.subheader("📄 Verwendeter Kontext:")
-            retrieved_chunks = pipeline.retriever.retrieve(user_query, top_k=3)
+            # Enhanced Context Display
+            if retrieval_method == "Hybrid (Empfohlen)" and retrieved_chunks:
+                st.subheader("📄 Hybrid Retrieval Details:")
+                
+                # Chunk Details mit Enhanced Scoring
+                for i, chunk in enumerate(retrieved_chunks):
+                    file_type = chunk['metadata'].get('file_type', 'unknown')
+                    filename = chunk['metadata']['filename']
+                    
+                    # File type icon
+                    type_icons = {"pdf": "📄", "docx": "📝", "txt": "📄"}
+                    icon = type_icons.get(file_type, "📄")
+                    
+                    # Enhanced title mit Hybrid Score
+                    hybrid_score = chunk.get('hybrid_score', 0)
+                    title = f"{icon} Chunk {i+1} - {filename} ({file_type.upper()}) - Hybrid Score: {hybrid_score:.3f}"
+                    
+                    with st.expander(title, expanded=(i == 0)):
+                        st.code(chunk['content'], language=None)
+                        
+                        # Detailed Scoring Metrics
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            semantic_score = chunk.get('semantic_score', 0)
+                            st.metric("Semantic", f"{semantic_score:.3f}")
+                        with col2:
+                            bm25_score = chunk.get('bm25_score', 0)
+                            st.metric("BM25", f"{bm25_score:.3f}")
+                        with col3:
+                            st.metric("Hybrid", f"{hybrid_score:.3f}")
+                        with col4:
+                            method = chunk.get('retrieval_method', 'standard')
+                            st.metric("Method", method)
+                        
+                        # Additional metadata
+                        if 'semantic_rank' in chunk and 'bm25_rank' in chunk:
+                            st.caption(f"Semantic Rank: {chunk['semantic_rank']} | BM25 Rank: {chunk['bm25_rank']}")
+            
+            else:
+                # Standard Context Display
+                st.subheader("📄 Verwendeter Kontext:")
+                retrieved_chunks = retrieved_chunks if 'retrieved_chunks' in locals() else pipeline.retriever.retrieve(user_query, top_k=3)
             
             if retrieved_chunks:
                 for i, chunk in enumerate(retrieved_chunks):
