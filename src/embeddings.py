@@ -2,7 +2,10 @@ import torch
 from sentence_transformers import SentenceTransformer
 from typing import List, Dict, Optional
 import numpy as np
+import logging
 from src.config import get_config, ModelConfig
+
+logger = logging.getLogger(__name__)
 
 class EmbeddingManager:
     def __init__(self, 
@@ -37,7 +40,7 @@ class EmbeddingManager:
                 use_gpu = torch.cuda.is_available()
         
         self.device = torch.device("cuda" if torch.cuda.is_available() and use_gpu else "cpu")
-        print(f"Using device: {self.device}")
+        logger.info(f"Using device: {self.device}")
         
         # Initialize model
         self.model = SentenceTransformer(
@@ -69,7 +72,7 @@ class EmbeddingManager:
         # Extrahieren der Inhalte für das Encoding
         contents = [chunk['content'] for chunk in chunks]
         
-        print(f"Generating embeddings for {len(contents)} chunks in batches of {batch_size}...")
+        logger.info(f"Generating embeddings for {len(contents)} chunks in batches of {batch_size}...")
         
         # Generieren der Embeddings in Batches
         embeddings = self.model.encode(
@@ -91,24 +94,24 @@ if __name__ == '__main__':
 
     # 1. Beispieldaten laden und verarbeiten
     data_path = 'data/raw_texts'
-    print(f"Loading and processing documents from '{data_path}'...")
+    logger.info(f"Loading and processing documents from '{data_path}'...")
     document_chunks = process_documents(data_path)
 
     if not document_chunks:
-        print("No documents to process.")
+        logger.warning("No documents to process.")
     else:
         # 2. EmbeddingManager initialisieren
-        print("\nInitializing EmbeddingManager...")
+        logger.info("Initializing EmbeddingManager...")
         embed_manager = EmbeddingManager()
 
         # 3. Embeddings generieren
         chunks_with_embeddings = embed_manager.generate_embeddings(document_chunks)
 
         # 4. Ergebnisse überprüfen
-        print(f"\nSuccessfully generated embeddings for {len(chunks_with_embeddings)} chunks.")
+        logger.info(f"Successfully generated embeddings for {len(chunks_with_embeddings)} chunks.")
         if chunks_with_embeddings:
             sample_chunk = chunks_with_embeddings[0]
-            print("\nSample chunk with embedding:")
-            print(f"  Filename: {sample_chunk['metadata']['filename']}")
-            print(f"  Content: {sample_chunk['content'][:100]}...")
-            print(f"  Embedding shape: {sample_chunk['embedding'].shape}")
+            logger.debug("Sample chunk with embedding:")
+            logger.debug(f"  Filename: {sample_chunk['metadata']['filename']}")
+            logger.debug(f"  Content: {sample_chunk['content'][:100]}...")
+            logger.debug(f"  Embedding shape: {sample_chunk['embedding'].shape}")

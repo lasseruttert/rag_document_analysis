@@ -1,7 +1,20 @@
 from typing import List, Dict, Tuple, Any
 import re
+import logging
+import hashlib
+import pickle
+import os
+import tempfile
+from pathlib import Path
 from src.embeddings import EmbeddingManager
 from src.vectorstore import VectorStoreManager
+from src.constants import (
+    COMBINED_STOPWORDS, TECHNICAL_PATTERNS, CODE_KEYWORDS, QUESTION_PATTERNS,
+    DEFAULT_SEMANTIC_WEIGHT, DEFAULT_KEYWORD_WEIGHT, HYBRID_BOOST_FACTOR,
+    BM25_K1, BM25_B, BM25_MIN_TOKEN_LENGTH
+)
+
+logger = logging.getLogger(__name__)
 
 # Hybrid Retrieval Dependencies
 from rank_bm25 import BM25Okapi
@@ -35,11 +48,11 @@ class Retriever:
             raise ValueError("Vector store collection not initialized.")
 
         # 1. Query-Embedding generieren
-        print(f"Generating embedding for query: '{query}'")
+        logger.debug(f"Generating embedding for query: '{query}'")
         query_embedding = self.embedding_manager.model.encode(query, convert_to_numpy=True)
 
         # 2. Ähnlichkeitssuche in der Vektordatenbank
-        print(f"Querying vector store for top {top_k} results...")
+        logger.debug(f"Querying vector store for top {top_k} results...")
         results = self.vector_store_manager.collection.query(
             query_embeddings=[query_embedding.tolist()],
             n_results=top_k,
@@ -63,27 +76,8 @@ class QueryAnalyzer:
     """Analysiert Query-Typ für adaptive Gewichtung."""
     
     def __init__(self):
-        self.technical_patterns = [
-            r'\b[A-Z_]{2,}\b',          # Konstanten/Env vars (API_KEY)
-            r'\b\w+\(\)',               # Funktionsaufrufe
-            r'\.\w+',                   # Attribute/Methods (.environ)
-            r'\w+\.\w+',                # Module.function (os.environ)
-            r'\bimport\s+\w+',          # Import statements
-            r'\bfrom\s+\w+\s+import',   # From imports
-            r'[\w-]+\.ya?ml\b',         # YAML files
-            r'[\w-]+\.json\b',          # JSON files
-            r'[\w-]+\.py\b',            # Python files
-            r'[\w-]+\.js\b',            # JavaScript files
-            r'\b\w+_\w+\b',             # Snake_case identifiers
-        ]
-        self.code_keywords = {
-            'python', 'kubernetes', 'docker', 'git', 'api', 'json', 
-            'yaml', 'config', 'function', 'class', 'import', 'pip',
-            'kubectl', 'pods', 'container', 'npm', 'node', 'java',
-            'maven', 'gradle', 'bash', 'shell', 'script', 'command',
-            'numpy', 'pandas', 'environment', 'variable', 'environ',
-            'compose', 'dockerfile', 'befehl', 'datei'
-        }
+        self.technical_patterns = TECHNICAL_PATTERNS
+        self.code_keywords = CODE_KEYWORDS
     
     def analyze_query_type(self, query: str) -> Dict[str, float]:
         """
@@ -106,8 +100,7 @@ class QueryAnalyzer:
         code_score = min(keyword_matches * 0.3, 1.0)  # 0.3 per keyword, max 1.0
         
         # Frage-Pattern (semantisch orientiert)
-        question_patterns = [r'\bwas\b', r'\bwie\b', r'\bwarum\b', r'\bwann\b', r'\?']
-        question_score = sum(0.25 for pattern in question_patterns 
+        question_score = sum(0.25 for pattern in QUESTION_PATTERNS 
                            if re.search(pattern, query_lower, re.IGNORECASE))
         
         # Adaptive Gewichtung basierend auf Scores
@@ -123,8 +116,8 @@ class QueryAnalyzer:
             keyword_weight = 1.0 - semantic_weight
         else:
             # Balanced Query
-            semantic_weight = 0.6
-            keyword_weight = 0.4
+            semantic_weight = DEFAULT_SEMANTIC_WEIGHT
+            keyword_weight = DEFAULT_KEYWORD_WEIGHT
         
         return {
             'semantic_weight': round(semantic_weight, 2),
@@ -135,11 +128,18 @@ class QueryAnalyzer:
 
 
 class GermanBM25Retriever:
-    """BM25-Retriever mit deutscher Sprachoptimierung."""
+    """BM25-Retriever mit deutscher Sprachoptimierung und Caching."""
     
-    def __init__(self, documents: List[Dict[str, Any]]):
+    def __init__(self, documents: List[Dict[str, Any]], cache_dir: str = None, enable_cache: bool = True):
         self.documents = documents
         self.stemmer = SnowballStemmer('german')
+        self.enable_cache = enable_cache
+        
+        # Set up cache directory
+        if cache_dir is None:
+            cache_dir = os.path.join(tempfile.gettempdir(), 'rag_bm25_cache')
+        self.cache_dir = Path(cache_dir)
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
         
         # Download NLTK resources if needed
         try:
@@ -147,10 +147,121 @@ class GermanBM25Retriever:
         except LookupError:
             nltk.download('punkt')
         
+        # Generate cache key based on document content
+        self.cache_key = self._generate_cache_key(documents)
+        self.cache_file = self.cache_dir / f"bm25_{self.cache_key}.pkl"
+        
+        # Try to load from cache or build new
+        if self.enable_cache and self._load_from_cache():
+            logger.info(f"Loaded BM25 model from cache: {self.cache_file}")
+        else:
+            logger.info("Building new BM25 model...")
+            self._build_bm25_model()
+            if self.enable_cache:
+                self._save_to_cache()
+                logger.info(f"Saved BM25 model to cache: {self.cache_file}")
+    
+    def _generate_cache_key(self, documents: List[Dict[str, Any]]) -> str:
+        """Generate a unique cache key based on document content."""
+        content_hash = hashlib.md5()
+        
+        # Create a stable hash from document content and metadata
+        for doc in sorted(documents, key=lambda x: x.get('id', '')):
+            content = doc.get('content', '')
+            chunk_id = doc.get('metadata', {}).get('chunk_id', '')
+            combined = f"{chunk_id}:{content}"
+            content_hash.update(combined.encode('utf-8'))
+        
+        return content_hash.hexdigest()[:16]  # Use first 16 chars
+    
+    def _build_bm25_model(self):
+        """Build BM25 model from documents."""
         # Prepare BM25 corpus
         self.tokenized_corpus = [self._preprocess_text(doc['content']) 
-                                for doc in documents]
+                                for doc in self.documents]
         self.bm25 = BM25Okapi(self.tokenized_corpus)
+    
+    def _save_to_cache(self) -> bool:
+        """Save BM25 model and tokenized corpus to cache."""
+        try:
+            cache_data = {
+                'tokenized_corpus': self.tokenized_corpus,
+                'bm25_idf': self.bm25.idf,
+                'bm25_doc_freqs': self.bm25.doc_freqs,
+                'bm25_doc_len': self.bm25.doc_len,
+                'bm25_avgdl': self.bm25.avgdl,
+                'documents_count': len(self.documents),
+                'cache_version': '1.0'
+            }
+            
+            with open(self.cache_file, 'wb') as f:
+                pickle.dump(cache_data, f)
+            
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to save BM25 cache: {e}")
+            return False
+    
+    def _load_from_cache(self) -> bool:
+        """Load BM25 model from cache if available and valid."""
+        try:
+            if not self.cache_file.exists():
+                return False
+            
+            with open(self.cache_file, 'rb') as f:
+                cache_data = pickle.load(f)
+            
+            # Validate cache version and document count
+            if (cache_data.get('cache_version') != '1.0' or 
+                cache_data.get('documents_count') != len(self.documents)):
+                logger.info("Cache invalid due to version or document count mismatch")
+                return False
+            
+            # Restore BM25 model
+            self.tokenized_corpus = cache_data['tokenized_corpus']
+            self.bm25 = BM25Okapi(self.tokenized_corpus)
+            
+            # Restore BM25 state
+            self.bm25.idf = cache_data['bm25_idf']
+            self.bm25.doc_freqs = cache_data['bm25_doc_freqs']
+            self.bm25.doc_len = cache_data['bm25_doc_len']
+            self.bm25.avgdl = cache_data['bm25_avgdl']
+            
+            return True
+            
+        except Exception as e:
+            logger.warning(f"Failed to load BM25 cache: {e}")
+            # Clean up corrupted cache file
+            try:
+                if self.cache_file.exists():
+                    self.cache_file.unlink()
+            except:
+                pass
+            return False
+    
+    def clear_cache(self):
+        """Clear the BM25 cache for this retriever."""
+        try:
+            if self.cache_file.exists():
+                self.cache_file.unlink()
+                logger.info(f"Cleared BM25 cache: {self.cache_file}")
+        except Exception as e:
+            logger.warning(f"Failed to clear cache: {e}")
+    
+    @classmethod
+    def clear_all_cache(cls, cache_dir: str = None):
+        """Clear all BM25 cache files."""
+        if cache_dir is None:
+            cache_dir = os.path.join(tempfile.gettempdir(), 'rag_bm25_cache')
+        
+        cache_path = Path(cache_dir)
+        if cache_path.exists():
+            try:
+                for cache_file in cache_path.glob('bm25_*.pkl'):
+                    cache_file.unlink()
+                logger.info(f"Cleared all BM25 cache files in {cache_dir}")
+            except Exception as e:
+                logger.warning(f"Failed to clear all cache: {e}")
         
     def _preprocess_text(self, text: str) -> List[str]:
         """
@@ -165,22 +276,11 @@ class GermanBM25Retriever:
         # Tokenisiere
         tokens = text.split()
         
-        # Deutsche Stoppwörter (erweitert)
-        german_stopwords = {
-            'der', 'die', 'und', 'in', 'den', 'von', 'zu', 'das', 'mit', 'sich',
-            'des', 'auf', 'ist', 'im', 'dem', 'nicht', 'ein', 'eine', 'als',
-            'auch', 'es', 'an', 'werden', 'aus', 'er', 'hat', 'dass', 'sie',
-            'nach', 'wird', 'bei', 'einer', 'um', 'am', 'sind', 'noch', 'wie',
-            'einem', 'über', 'einen', 'so', 'zum', 'war', 'haben', 'nur', 'oder',
-            'aber', 'vor', 'zur', 'bis', 'mehr', 'durch', 'man', 'sein', 'wurde',
-            'wenn', 'können', 'alle', 'würde', 'meine', 'macht', 'kann', 'soll',
-            'wir', 'ich', 'dir', 'du', 'ihr', 'uns', 'euch'
-        }
-        
+        # Use shared stopwords from constants
         # Filtere und stemme
         processed_tokens = []
         for token in tokens:
-            if len(token) >= 3 and token not in german_stopwords:
+            if len(token) >= BM25_MIN_TOKEN_LENGTH and token not in COMBINED_STOPWORDS:
                 # Stemming für bessere Matching
                 stemmed = self.stemmer.stem(token)
                 processed_tokens.append(stemmed)
@@ -231,11 +331,12 @@ class EnhancedHybridRetriever:
     Intelligenter Hybrid-Retriever mit adaptiver Gewichtung.
     """
     
-    def __init__(self, semantic_retriever, vector_store, documents: List[Dict[str, Any]]):
+    def __init__(self, semantic_retriever, vector_store, documents: List[Dict[str, Any]], 
+                 cache_dir: str = None, enable_cache: bool = True):
         self.semantic_retriever = semantic_retriever
         self.vector_store = vector_store
         self.query_analyzer = QueryAnalyzer()
-        self.bm25_retriever = GermanBM25Retriever(documents)
+        self.bm25_retriever = GermanBM25Retriever(documents, cache_dir=cache_dir, enable_cache=enable_cache)
         
     def hybrid_retrieve(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
         """
@@ -330,7 +431,7 @@ class EnhancedHybridRetriever:
             # Bonus für Dokumente die in beiden Top-Results sind
             if (candidate['semantic_rank'] <= top_k and 
                 candidate['bm25_rank'] <= top_k):
-                hybrid_score *= 1.2  # 20% boost
+                hybrid_score *= HYBRID_BOOST_FACTOR
             
             candidate['hybrid_score'] = hybrid_score
             candidate['distance'] = 1.0 - hybrid_score  # For consistency
@@ -340,45 +441,24 @@ class EnhancedHybridRetriever:
         final_candidates.sort(key=lambda x: x['hybrid_score'], reverse=True)
         
         return final_candidates[:top_k]
+    
+    def clear_bm25_cache(self):
+        """Clear the BM25 cache for this retriever."""
+        self.bm25_retriever.clear_cache()
+    
+    def rebuild_bm25_index(self, documents: List[Dict[str, Any]] = None):
+        """Rebuild BM25 index with new documents, clearing cache."""
+        if documents is not None:
+            self.bm25_retriever.clear_cache()
+            self.bm25_retriever = GermanBM25Retriever(
+                documents, 
+                cache_dir=self.bm25_retriever.cache_dir, 
+                enable_cache=self.bm25_retriever.enable_cache
+            )
 
 
 if __name__ == '__main__':
-    # Setup für den Test
-    embed_manager = EmbeddingManager()
-    vector_store = VectorStoreManager()
-    
-    # Sicherstellen, dass die Collection existiert und Dokumente enthält
-    # (Dieser Teil würde normalerweise in einem Setup-Skript ausgeführt)
-    from text_processor import process_documents
-    collection_name = "retrieval_test"
-    collection = vector_store.create_or_get_collection(collection_name)
-    if collection.count() == 0:
-        print("Collection is empty. Populating with sample documents...")
-        document_chunks = process_documents('data/raw_texts')
-        chunks_with_embeddings = embed_manager.generate_embeddings(document_chunks)
-        vector_store.add_documents(chunks_with_embeddings)
-        print("Population complete.")
-
-    # Retriever initialisieren
-    retriever = Retriever(embedding_manager=embed_manager, vector_store_manager=vector_store)
-
-    # Beispiel-Anfragen
-    test_queries = [
-        "Was ist ein Pod in Kubernetes?",
-        "Wie kann ich meine Python-Abhängigkeiten verwalten?",
-        "Was sind Best Practices für das Schreiben von Tests in Python?"
-    ]
-
-    for user_query in test_queries:
-        print(f"\n--- Testing Query: '{user_query}' ---")
-        retrieved_docs = retriever.retrieve(user_query, top_k=2)
-
-        print("\nRetrieved Documents:")
-        if not retrieved_docs:
-            print("No documents found.")
-        else:
-            for doc in retrieved_docs:
-                print(f"  - ID: {doc['id']}")
-                print(f"    Distance: {doc['distance']:.4f}")
-                print(f"    Content: {doc['content'][:150]}...")
-        print("-" * 20)
+    # This section should be moved to a proper test file
+    logger.info("Retriever module loaded successfully")
+    logger.info("Use this module by importing Retriever, EnhancedHybridRetriever classes")
+    logger.info("For testing, run: python -m pytest tests/test_retriever.py")

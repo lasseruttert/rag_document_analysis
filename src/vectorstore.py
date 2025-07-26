@@ -51,7 +51,7 @@ class VectorStoreManager:
         """
         name = name or self.config.default_collection
         self.collection = self.client.get_or_create_collection(name=name)
-        print(f"Collection '{name}' loaded. It contains {self.collection.count()} documents.")
+        logger.info(f"Collection '{name}' loaded. It contains {self.collection.count()} documents.")
         return self.collection
 
     def add_documents(self, chunks_with_embeddings: List[Dict[str, any]], 
@@ -74,13 +74,13 @@ class VectorStoreManager:
             raise ValueError("No collection specified. Call create_or_get_collection() first.")
 
         if not chunks_with_embeddings:
-            print("No documents to add.")
+            logger.warning("No documents to add.")
             return
 
         batch_size = batch_size or self.config.batch_size
         total_chunks = len(chunks_with_embeddings)
         
-        print(f"Adding {total_chunks} documents to collection '{target_collection.name}' in batches of {batch_size}...")
+        logger.info(f"Adding {total_chunks} documents to collection '{target_collection.name}' in batches of {batch_size}...")
         
         # Process in batches
         for i in range(0, total_chunks, batch_size):
@@ -92,7 +92,7 @@ class VectorStoreManager:
             embeddings = [chunk['embedding'].tolist() for chunk in batch_chunks]
             metadatas = [chunk['metadata'] for chunk in batch_chunks]
 
-            print(f"Processing batch {i//batch_size + 1}/{(total_chunks + batch_size - 1)//batch_size} ({len(batch_chunks)} documents)...")
+            logger.debug(f"Processing batch {i//batch_size + 1}/{(total_chunks + batch_size - 1)//batch_size} ({len(batch_chunks)} documents)...")
             
             target_collection.add(
                 ids=ids,
@@ -101,7 +101,7 @@ class VectorStoreManager:
                 metadatas=metadatas
             )
         
-        print(f"Successfully added documents. Collection '{target_collection.name}' now contains {target_collection.count()} documents.")
+        logger.info(f"Successfully added documents. Collection '{target_collection.name}' now contains {target_collection.count()} documents.")
         
         # Use collection manager to track stats
         if collection_name:
@@ -137,10 +137,10 @@ class VectorStoreManager:
         if collection:
             self.collection = collection
             self.active_collection_name = name
-            print(f"Active collection set to '{name}' with {collection.count()} documents.")
+            logger.info(f"Active collection set to '{name}' with {collection.count()} documents.")
             return True
         else:
-            print(f"Collection '{name}' not found.")
+            logger.warning(f"Collection '{name}' not found.")
             return False
     
     def search_with_filters(self, 
@@ -363,58 +363,4 @@ class VectorStoreManager:
         return self.collection_manager.delete_collection(name)
 
 if __name__ == '__main__':
-    print("Testing Enhanced VectorStoreManager with Multi-Collection Support...")
-    
-    # Initialize VectorStoreManager
-    vector_store = VectorStoreManager()
-    
-    # Test 1: Collection Management
-    print("\n1. Testing Collection Management...")
-    success = vector_store.create_collection(
-        "test_collection", 
-        "Test collection for enhanced features",
-        tags=["test", "enhanced"]
-    )
-    print(f"Collection creation: {'Success' if success else 'Failed'}")
-    
-    # Test 2: List Collections
-    print("\n2. Testing Collection Listing...")
-    collections = vector_store.list_all_collections()
-    print(f"Found {len(collections)} collections:")
-    for coll in collections:
-        print(f"  - {coll['name']}: {coll['description']} ({coll['chunk_count']} chunks)")
-    
-    # Test 3: Active Collection Management
-    print("\n3. Testing Active Collection Management...")
-    if collections:
-        success = vector_store.set_active_collection(collections[0]['name'])
-        print(f"Set active collection: {'Success' if success else 'Failed'}")
-    
-    # Test 4: Metadata Filtering
-    print("\n4. Testing Metadata Filtering...")
-    from src.metadata_filter import MetadataFilter
-    
-    # Create sample filters
-    pdf_filter = MetadataFilter.by_file_type("pdf")
-    large_docs_filter = MetadataFilter.by_content_size(min_size=500)
-    combined_filter = MetadataFilter.combine_filters([pdf_filter, large_docs_filter], "AND")
-    
-    print(f"Created filters: PDF files with minimum 500 characters")
-    
-    # Test 5: Collection Statistics
-    print("\n5. Testing Collection Statistics...")
-    if collections:
-        stats = vector_store.get_collection_statistics(collections[0]['name'])
-        if stats:
-            print(f"Statistics for '{stats['name']}':")
-            print(f"  Documents: {stats['document_count']}")
-            print(f"  Chunks: {stats['chunk_count']}")
-            print(f"  File types: {stats['file_types']}")
-    
-    print("\nEnhanced VectorStoreManager test completed!")
-    print("\nNew Features Available:")
-    print("  ✅ Multi-collection management")
-    print("  ✅ Metadata-based filtering")
-    print("  ✅ Cross-collection search")
-    print("  ✅ Collection statistics")
-    print("  ✅ Active collection management")
+    logger.info("VectorStoreManager module loaded for testing")

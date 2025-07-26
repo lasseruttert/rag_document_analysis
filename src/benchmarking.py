@@ -11,11 +11,14 @@ import time
 import statistics
 import json
 import csv
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Tuple, Optional
 import numpy as np
 from dataclasses import dataclass, asdict
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class BenchmarkResult:
@@ -183,20 +186,18 @@ class PerformanceBenchmarker:
         if methods is None:
             methods = ['standard', 'hybrid']
         
-        print("🚀 Starting Comprehensive RAG Performance Benchmark")
-        print(f"📊 Testing {len(self.test_queries)} queries with {len(methods)} methods")
-        print("=" * 60)
+        logger.info("Starting Comprehensive RAG Performance Benchmark")
+        logger.info(f"Testing {len(self.test_queries)} queries with {len(methods)} methods")
         
         all_results = []
         
         # Ensure pipeline is ready
         if self.pipeline.collection.count() == 0:
-            print("📋 Ingesting documents for benchmark...")
+            logger.info("Ingesting documents for benchmark...")
             self.pipeline.ingest_documents()
         
         for method in methods:
-            print(f"\n🔍 Testing method: {method.upper()}")
-            print("-" * 40)
+            logger.info(f"Testing method: {method.upper()}")
             
             method_results = self._benchmark_method(method)
             all_results.extend(method_results)
@@ -230,7 +231,7 @@ class PerformanceBenchmarker:
             expected_files = test_case['expected_files']
             query_type = test_case['query_type']
             
-            print(f"  {i:2d}/{len(self.test_queries)} | {query_type:9s} | {query[:50]:<50}")
+            logger.debug(f"Query {i:2d}/{len(self.test_queries)} | {query_type:9s} | {query[:50]:<50}")
             
             # Run retrieval and measure time
             start_time = time.perf_counter()
@@ -285,7 +286,7 @@ class PerformanceBenchmarker:
                 results.append(result)
                 
             except Exception as e:
-                print(f"    ❌ Error: {str(e)}")
+                logger.error(f"Error processing query '{query}': {str(e)}")
                 # Create failed result
                 result = BenchmarkResult(
                     query=query,
@@ -447,38 +448,32 @@ class PerformanceBenchmarker:
                     }
                     writer.writerow(row)
         
-        print(f"\n💾 Results saved:")
-        print(f"   📄 JSON: {json_file}")
-        print(f"   📊 CSV:  {csv_file}")
+        logger.info(f"Results saved to JSON: {json_file} and CSV: {csv_file}")
     
     def _print_benchmark_summary(self, suite: BenchmarkSuite):
         """Print comprehensive benchmark summary."""
-        print("\n" + "=" * 80)
-        print("🎯 BENCHMARK SUMMARY REPORT")
-        print("=" * 80)
+        logger.info("BENCHMARK SUMMARY REPORT")
         
         for method, stats in suite.summary_stats.items():
-            print(f"\n📊 Method: {method.upper()}")
-            print("-" * 50)
-            print(f"Total Queries:           {stats['total_queries']}")
-            print(f"Successful Queries:      {stats['successful_queries']}")
-            print(f"Avg Response Time:       {stats['avg_response_time_ms']:.1f}ms")
-            print(f"95th Percentile Time:    {stats['p95_response_time_ms']:.1f}ms")
-            print(f"Top-1 Accuracy:          {stats['top1_accuracy']:.1%}")
-            print(f"Top-3 Accuracy:          {stats['top3_accuracy']:.1%}")
-            print(f"Top-5 Accuracy:          {stats['top5_accuracy']:.1%}")
-            print(f"Avg Relevance Score:     {stats['avg_relevance_score']:.3f}")
+            logger.info(f"Method: {method.upper()}")
+            logger.info(f"Total Queries: {stats['total_queries']}")
+            logger.info(f"Successful Queries: {stats['successful_queries']}")
+            logger.info(f"Avg Response Time: {stats['avg_response_time_ms']:.1f}ms")
+            logger.info(f"95th Percentile Time: {stats['p95_response_time_ms']:.1f}ms")
+            logger.info(f"Top-1 Accuracy: {stats['top1_accuracy']:.1%}")
+            logger.info(f"Top-3 Accuracy: {stats['top3_accuracy']:.1%}")
+            logger.info(f"Top-5 Accuracy: {stats['top5_accuracy']:.1%}")
+            logger.info(f"Avg Relevance Score: {stats['avg_relevance_score']:.3f}")
             
-            print(f"\n  📋 Query Type Breakdown:")
+            logger.info("Query Type Breakdown:")
             for qt, qt_stats in stats.get('query_type_breakdown', {}).items():
-                print(f"    {qt:12s}: {qt_stats['count']:2d} queries, "
+                logger.info(f"  {qt}: {qt_stats['count']} queries, "
                       f"Top-3: {qt_stats['avg_top3_accuracy']:.1%}, "
                       f"Time: {qt_stats['avg_response_time']:.1f}ms")
         
         # Comparison if multiple methods
         if len(suite.summary_stats) > 1:
-            print(f"\n🆚 METHOD COMPARISON")
-            print("-" * 50)
+            logger.info("METHOD COMPARISON")
             
             methods = list(suite.summary_stats.keys())
             if 'standard' in methods and 'hybrid' in methods:
@@ -488,12 +483,11 @@ class PerformanceBenchmarker:
                 top3_improvement = ((hyb_stats['top3_accuracy'] - std_stats['top3_accuracy']) / std_stats['top3_accuracy'] * 100) if std_stats['top3_accuracy'] > 0 else 0
                 time_change = ((hyb_stats['avg_response_time_ms'] - std_stats['avg_response_time_ms']) / std_stats['avg_response_time_ms'] * 100) if std_stats['avg_response_time_ms'] > 0 else 0
                 
-                print(f"Top-3 Accuracy Improvement: {top3_improvement:+.1f}%")
-                print(f"Response Time Change:       {time_change:+.1f}%")
-                print(f"Relevance Score Improvement: {(hyb_stats['avg_relevance_score'] - std_stats['avg_relevance_score']):.3f}")
+                logger.info(f"Top-3 Accuracy Improvement: {top3_improvement:+.1f}%")
+                logger.info(f"Response Time Change: {time_change:+.1f}%")
+                logger.info(f"Relevance Score Improvement: {(hyb_stats['avg_relevance_score'] - std_stats['avg_relevance_score']):.3f}")
         
-        print(f"\n📅 Benchmark completed at: {suite.timestamp}")
-        print("=" * 80)
+        logger.info(f"Benchmark completed at: {suite.timestamp}")
 
 def run_performance_benchmark():
     """Convenience function to run performance benchmark."""
@@ -509,7 +503,7 @@ def run_performance_benchmark():
     
     from src.pipeline import RAGPipeline
     
-    print("🚀 Initializing RAG Pipeline for Benchmarking...")
+    logger.info("Initializing RAG Pipeline for Benchmarking...")
     pipeline = RAGPipeline()
     
     benchmarker = PerformanceBenchmarker(pipeline)
@@ -520,4 +514,4 @@ def run_performance_benchmark():
     return results
 
 if __name__ == '__main__':
-    results = run_performance_benchmark()
+    logger.info("PerformanceBenchmarker module loaded for testing")

@@ -1,6 +1,9 @@
 from transformers import T5ForConditionalGeneration, T5Tokenizer
 from typing import List, Dict, Optional
+import logging
 from src.config import get_config, GenerationConfig
+
+logger = logging.getLogger(__name__)
 
 class LLMHandler:
     def __init__(self, 
@@ -23,10 +26,10 @@ class LLMHandler:
         
         self.config = config
         
-        print(f"Loading model: {model_name}...")
+        logger.info(f"Loading model: {model_name}...")
         self.model = T5ForConditionalGeneration.from_pretrained(model_name)
         self.tokenizer = T5Tokenizer.from_pretrained(model_name)
-        print("Model loaded successfully.")
+        logger.info("Model loaded successfully.")
 
     def generate_answer(self, query: str, context_chunks: List[Dict[str, any]]) -> str:
         """
@@ -63,8 +66,8 @@ Question: {query}
 
 Answer:"""
 
-        print("\nGenerating answer...")
-        print(f"Prompt length: {len(prompt)} characters")
+        logger.debug("Generating answer...")
+        logger.debug(f"Prompt length: {len(prompt)} characters")
 
         # Text generieren mit konfigurierten Parametern
         inputs = self.tokenizer(
@@ -88,42 +91,4 @@ Answer:"""
         return answer
 
 if __name__ == '__main__':
-    # Setup für den Test
-    from src.embeddings import EmbeddingManager
-    from src.vectorstore import VectorStoreManager
-    from src.retriever import Retriever
-    from src.text_processor import process_documents
-
-    # 1. Komponenten initialisieren
-    print("Initializing components...")
-    embed_manager = EmbeddingManager()
-    vector_store = VectorStoreManager()
-    collection = vector_store.create_or_get_collection("llm_test")
-
-    # 2. Daten laden und in Vektor-DB speichern (falls nötig)
-    if collection.count() == 0:
-        print("Populating vector store...")
-        document_chunks = process_documents('data/raw_texts')
-        chunks_with_embeddings = embed_manager.generate_embeddings(document_chunks)
-        vector_store.add_documents(chunks_with_embeddings)
-
-    # 3. Retriever und LLMHandler initialisieren
-    retriever = Retriever(embed_manager, vector_store)
-    llm_handler = LLMHandler()
-
-    # 4. Testanfrage
-    test_query = "Was ist ein Pod in Kubernetes und wofür wird er verwendet?"
-    print(f"\n--- Testing Query: '{test_query}' ---")
-
-    # 5. Kontext abrufen
-    retrieved_context = retriever.retrieve(test_query, top_k=3)
-    print("\nRetrieved context:")
-    for i, chunk in enumerate(retrieved_context):
-        print(f"  {i+1}. {chunk['content'][:100]}...")
-
-    # 6. Antwort generieren
-    final_answer = llm_handler.generate_answer(test_query, retrieved_context)
-
-    print("\n--- Final Answer ---")
-    print(final_answer)
-    print("-" * 20)
+    logger.info("LLMHandler module loaded for testing")

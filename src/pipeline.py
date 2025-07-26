@@ -37,22 +37,22 @@ class RAGPipeline:
         embedding_model = embedding_model_name or self.config.models.embedding_model
         llm_model = llm_model_name or self.config.models.llm_model
 
-        print("Initializing EmbeddingManager...")
+        logger.info("Initializing EmbeddingManager...")
         self.embedding_manager = EmbeddingManager(
             model_name=embedding_model,
             batch_size=self.config.vector_database.embedding_batch_size
         )
 
-        print("Initializing VectorStoreManager...")
+        logger.info("Initializing VectorStoreManager...")
         self.vector_store_manager = VectorStoreManager(storage_path=self.vector_db_path)
         self.collection = self.vector_store_manager.create_or_get_collection(
             self.config.vector_database.default_collection
         )
 
-        print("Initializing Retriever...")
+        logger.info("Initializing Retriever...")
         self.retriever = Retriever(self.embedding_manager, self.vector_store_manager)
 
-        print("Initializing LLMHandler...")
+        logger.info("Initializing LLMHandler...")
         self.llm_handler = LLMHandler(
             model_name=llm_model,
             config=self.config.generation
@@ -62,7 +62,7 @@ class RAGPipeline:
         self.enhanced_retriever = None
         
         # Query Processor für intelligente Query-Verarbeitung
-        print("Initializing Query Processor...")
+        logger.info("Initializing Query Processor...")
         self.query_processor = QueryProcessor(config=self.config)
         
         # Current active collection name
@@ -72,14 +72,14 @@ class RAGPipeline:
         """
         Verarbeitet Dokumente, generiert Embeddings und speichert sie im Vektor-Store.
         """
-        print(f"Ingesting documents from {self.text_data_path}...")
+        logger.info(f"Ingesting documents from {self.text_data_path}...")
         document_chunks = process_documents(
             directory_path=self.text_data_path,
             chunk_size=self.config.chunking.chunk_size,
             chunk_overlap=self.config.chunking.chunk_overlap
         )
         if not document_chunks:
-            print("No documents found to ingest.")
+            logger.warning("No documents found to ingest.")
             return
 
         chunks_with_embeddings = self.embedding_manager.generate_embeddings(document_chunks)
@@ -87,7 +87,7 @@ class RAGPipeline:
             chunks_with_embeddings,
             batch_size=self.config.vector_database.batch_size
         )
-        print("Document ingestion complete.")
+        logger.info("Document ingestion complete.")
 
     def answer_query(self, query: str, top_k: Optional[int] = None) -> str:
         """
@@ -101,7 +101,7 @@ class RAGPipeline:
             Die vom LLM generierte Antwort.
         """
         top_k = top_k or self.config.retrieval.default_top_k
-        print(f"Processing query: '{query}' (top_k={top_k})")
+        logger.info(f"Processing query: '{query}' (top_k={top_k})")
         
         # 1. Retrieval
         retrieved_chunks = self.retriever.retrieve(query, top_k=top_k)
@@ -115,7 +115,7 @@ class RAGPipeline:
     
     def _setup_enhanced_retriever(self):
         """Setup Enhanced Hybrid Retriever."""
-        print("Setting up Enhanced Hybrid Retriever...")
+        logger.info("Setting up Enhanced Hybrid Retriever...")
         
         # Hole alle Dokumente für BM25
         collection_data = self.collection.get(include=['documents', 'metadatas'])
@@ -134,7 +134,7 @@ class RAGPipeline:
             vector_store=self.vector_store_manager,
             documents=documents
         )
-        print("Enhanced Hybrid Retriever ready.")
+        logger.info("Enhanced Hybrid Retriever ready.")
 
     def enhanced_answer_query(self, query: str, top_k: Optional[int] = None) -> str:
         """Enhanced Query Processing mit Hybrid Retrieval."""
@@ -147,7 +147,7 @@ class RAGPipeline:
         if not self.enhanced_retriever:
             self._setup_enhanced_retriever()
         
-        print(f"Processing enhanced query: '{query}' (top_k={top_k})")
+        logger.info(f"Processing enhanced query: '{query}' (top_k={top_k})")
         
         # Hybrid Retrieval
         retrieved_chunks = self.enhanced_retriever.hybrid_retrieve(query, top_k)
@@ -160,7 +160,7 @@ class RAGPipeline:
             query_type = retrieved_chunks[0].get('query_type', 'unknown')
             semantic_weight = retrieved_chunks[0].get('semantic_weight', 0)
             keyword_weight = retrieved_chunks[0].get('keyword_weight', 0)
-            print(f"Query classified as: {query_type} (semantic: {semantic_weight:.2f}, keyword: {keyword_weight:.2f})")
+            logger.debug(f"Query classified as: {query_type} (semantic: {semantic_weight:.2f}, keyword: {keyword_weight:.2f})")
         
         # Generiere Antwort mit Enhanced Context
         answer = self.llm_handler.generate_answer(query, retrieved_chunks)
@@ -265,7 +265,7 @@ class RAGPipeline:
             return False
         
         data_path = text_data_path or self.text_data_path
-        print(f"Ingesting documents from {data_path} to collection '{collection_name}'...")
+        logger.info(f"Ingesting documents from {data_path} to collection '{collection_name}'...")
         
         document_chunks = process_documents(
             directory_path=data_path,
@@ -274,7 +274,7 @@ class RAGPipeline:
         )
         
         if not document_chunks:
-            print("No documents found to ingest.")
+            logger.warning("No documents found to ingest.")
             return False
 
         chunks_with_embeddings = self.embedding_manager.generate_embeddings(document_chunks)
@@ -284,7 +284,7 @@ class RAGPipeline:
             collection_name=collection_name
         )
         
-        print(f"Document ingestion to collection '{collection_name}' complete.")
+        logger.info(f"Document ingestion to collection '{collection_name}' complete.")
         return True
     
     # ===================== FILTERED SEARCH METHODS =====================
@@ -309,7 +309,7 @@ class RAGPipeline:
         top_k = top_k or self.config.retrieval.default_top_k
         target_collection = collection_name or self.active_collection_name
         
-        print(f"Processing filtered query: '{query}' on collection '{target_collection}' (top_k={top_k})")
+        logger.info(f"Processing filtered query: '{query}' on collection '{target_collection}' (top_k={top_k})")
         
         # Generate query embedding
         query_embedding = self.embedding_manager.model.encode([query])[0].tolist()
@@ -357,7 +357,7 @@ class RAGPipeline:
         Returns:
             Generated answer from combined results
         """
-        print(f"Processing cross-collection query: '{query}'")
+        logger.info(f"Processing cross-collection query: '{query}'")
         
         # Generate query embedding
         query_embedding = self.embedding_manager.model.encode([query])[0].tolist()
@@ -418,7 +418,7 @@ class RAGPipeline:
         if not collection_obj or collection_obj.count() == 0:
             return self.config.generation.no_context_response
         
-        print(f"Processing enhanced filtered query: '{query}' on collection '{target_collection}' (top_k={top_k})")
+        logger.info(f"Processing enhanced filtered query: '{query}' on collection '{target_collection}' (top_k={top_k})")
         
         # Setup Enhanced Retriever if not done or collection changed
         if not self.enhanced_retriever:
@@ -440,7 +440,7 @@ class RAGPipeline:
                 query_type = retrieved_chunks[0].get('query_type', 'unknown')
                 semantic_weight = retrieved_chunks[0].get('semantic_weight', 0)
                 keyword_weight = retrieved_chunks[0].get('keyword_weight', 0)
-                print(f"Query classified as: {query_type} (semantic: {semantic_weight:.2f}, keyword: {keyword_weight:.2f})")
+                logger.debug(f"Query classified as: {query_type} (semantic: {semantic_weight:.2f}, keyword: {keyword_weight:.2f})")
             
             # Generate answer
             answer = self.llm_handler.generate_answer(query, retrieved_chunks)
@@ -497,7 +497,7 @@ class RAGPipeline:
             expansions = query_analysis.expanded_query.split(" OR ")
             search_query = expansions[0] if expansions else processed_query
         
-        print(f"Query preprocessing: '{query}' -> '{search_query}' (intent: {query_analysis.intent.value})")
+        logger.debug(f"Query preprocessing: '{query}' -> '{search_query}' (intent: {query_analysis.intent.value})")
         
         # Step 2: Perform enhanced search based on intent
         try:
@@ -573,114 +573,8 @@ class RAGPipeline:
         }
 
 if __name__ == '__main__':
-    print("Testing Enhanced RAG Pipeline with Multi-Collection Management...")
-    
-    # Initialize pipeline
-    pipeline = RAGPipeline()
-    
-    # Test 1: Collection Management
-    print("\n1. Testing Collection Management...")
-    
-    # Create test collections
-    pipeline.create_collection("kubernetes_docs", "Kubernetes documentation", ["kubernetes", "containers"])
-    pipeline.create_collection("python_docs", "Python best practices", ["python", "coding"])
-    
-    # List collections
-    collections = pipeline.list_collections()
-    print(f"Available collections: {[c['name'] for c in collections]}")
-    
-    # Test 2: Collection Statistics
-    print("\n2. Testing Collection Statistics...")
-    for collection in collections:
-        stats = pipeline.get_collection_statistics(collection['name'])
-        print(f"  {collection['name']}: {stats.get('chunk_count', 0)} chunks, {stats.get('document_count', 0)} documents")
-    
-    # Test 3: Filtered Search
-    print("\n3. Testing Filtered Search...")
-    
-    # Create filters
-    from src.metadata_filter import MetadataFilter
-    
-    pdf_filter = MetadataFilter.by_file_type("pdf")
-    large_docs_filter = MetadataFilter.by_content_size(min_size=500)
-    combined_filter = MetadataFilter.combine_filters([pdf_filter, large_docs_filter], "AND")
-    
-    test_query = "Was sind Kubernetes Best Practices?"
-    
-    # Standard query
-    print(f"\nStandard query: '{test_query}'")
-    if pipeline.collection.count() > 0:
-        response = pipeline.answer_query(test_query)
-        print(f"Response: {response[:100]}...")
-    
-    # Filtered query
-    print(f"\nFiltered query (PDF files, >500 chars): '{test_query}'")
-    try:
-        response = pipeline.answer_query_with_filters(test_query, combined_filter)
-        print(f"Filtered response: {response[:100]}...")
-    except Exception as e:
-        print(f"Filtered query test skipped: {e}")
-    
-    # Test 4: Cross-Collection Search
-    print("\n4. Testing Cross-Collection Search...")
-    if len(collections) > 1:
-        try:
-            response = pipeline.search_across_collections(
-                "Python and Kubernetes integration",
-                collection_names=[c['name'] for c in collections[:2]]
-            )
-            print(f"Cross-collection response: {response[:100]}...")
-        except Exception as e:
-            print(f"Cross-collection search test skipped: {e}")
-    
-    # Test 5: Enhanced Filtering
-    print("\n5. Testing Enhanced Hybrid Retrieval with Filtering...")
-    try:
-        response = pipeline.enhanced_answer_query_with_filters(
-            "Kubernetes deployment strategies",
-            filters=None  # No filters for enhanced retrieval demo
-        )
-        print(f"Enhanced response: {response[:100]}...")
-    except Exception as e:
-        print(f"Enhanced retrieval test skipped: {e}")
-    
-    # Test 6: Query Preprocessing
-    print("\n6. Testing Query Preprocessing...")
-    test_queries = [
-        "Was ist ein Pod in Kubernetes?",
-        "wie erstele ich ein deployment",  # Typo
-        "kubectl get pods",
-        "installiere nginx"
-    ]
-    
-    for query in test_queries:
-        try:
-            intent_analysis = pipeline.analyze_query_intent(query)
-            print(f"  Query: '{query}'")
-            print(f"    Intent: {intent_analysis['intent']} (confidence: {intent_analysis['confidence']:.2f})")
-            print(f"    Keywords: {intent_analysis['extracted_info']['keywords']}")
-            if intent_analysis['extracted_info']['spell_suggestions']:
-                print(f"    Spell suggestions: {intent_analysis['extracted_info']['spell_suggestions']}")
-        except Exception as e:
-            print(f"  Query preprocessing test skipped for '{query}': {e}")
-    
-    # Test 7: Query Suggestions
-    print("\n7. Testing Query Suggestions...")
-    try:
-        suggestions = pipeline.suggest_query_completions("kubern")
-        print(f"  Suggestions for 'kubern': {suggestions[:3]}")
-    except Exception as e:
-        print(f"  Query suggestions test skipped: {e}")
-    
-    print("\nEnhanced RAG Pipeline test completed!")
-    print("\nNew Features Available:")
-    print("  ✅ Multi-collection management")
-    print("  ✅ Collection-specific document ingestion")
-    print("  ✅ Metadata-based filtered search")
-    print("  ✅ Cross-collection search capabilities")
-    print("  ✅ Enhanced hybrid retrieval with filtering")
-    print("  ✅ Collection statistics and management")
-    print("  ✅ Intelligent query preprocessing")
-    print("  ✅ Query expansion and spell checking")
-    print("  ✅ Intent detection and analysis")
-    print("  ✅ Query suggestions and completions")
+    # This section should be moved to a proper test file
+    # For now, just demonstrate basic functionality
+    logger.info("RAG Pipeline module loaded successfully")
+    logger.info("Use this module by importing RAGPipeline class")
+    logger.info("For testing, run: python -m pytest tests/test_pipeline.py")

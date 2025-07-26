@@ -1,0 +1,36 @@
+# RAG Document Analysis System Requirements
+# Core ML and AI libraries
+torch>=2.0.0
+sentence-transformers>=2.2.0
+transformers>=4.20.0
+numpy>=1.21.0
+
+# Vector database and search
+chromadb>=0.4.0
+rank-bm25>=0.2.2
+
+# Natural language processing
+nltk>=3.8.0
+
+# Web framework
+streamlit>=1.25.0
+
+# Data processing and utilities
+pyyaml>=6.0
+pandas>=1.5.0
+
+# Development and testing
+pytest>=7.0.0
+pytest-cov>=4.0.0
+
+# Optional dependencies for enhanced functionality
+# PDF processing (choose one or both)
+pdfplumber>=0.7.0
+PyMuPDF>=1.20.0
+
+# DOCX processing
+python-docx>=0.8.11
+
+# Additional utilities
+pathlib2>=2.3.7; python_version<"3.4"
+typing-extensions>=4.0.0; python_version<"3.8"

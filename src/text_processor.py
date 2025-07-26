@@ -4,6 +4,10 @@ import logging
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional, Any
 from src.config import get_config, ChunkingConfig
+from src.constants import (
+    COMBINED_STOPWORDS, DEFAULT_MAX_FILE_SIZE_MB, SUPPORTED_FILE_FORMATS,
+    MIN_KEYWORD_LENGTH, MAX_KEYWORDS_DEFAULT, MIN_CHUNK_LENGTH
+)
 
 # PDF parsing imports
 try:
@@ -32,8 +36,8 @@ except ImportError:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# File size limit (50MB)
-MAX_FILE_SIZE = 50 * 1024 * 1024
+# File size limit from constants
+MAX_FILE_SIZE = DEFAULT_MAX_FILE_SIZE_MB * 1024 * 1024
 
 def load_pdf_files(directory_path: str) -> List[Tuple[str, str, str]]:
     """
@@ -642,24 +646,11 @@ def extract_keywords(text: str, max_keywords: int = 5) -> List[str]:
     clean_text = re.sub(r'[^\w\s]', ' ', text.lower())
     words = clean_text.split()
     
-    # Filtere häufige Stoppwörter (deutsche)
-    stopwords = {
-        'der', 'die', 'und', 'in', 'den', 'von', 'zu', 'das', 'mit', 'sich',
-        'des', 'auf', 'ist', 'im', 'dem', 'nicht', 'ein', 'eine', 'als',
-        'auch', 'es', 'an', 'werden', 'aus', 'er', 'hat', 'dass', 'sie',
-        'nach', 'wird', 'bei', 'einer', 'um', 'am', 'sind', 'noch', 'wie',
-        'einem', 'über', 'einen', 'so', 'zum', 'war', 'haben', 'nur', 'oder',
-        'aber', 'vor', 'zur', 'bis', 'mehr', 'durch', 'man', 'sein', 'wurde',
-        'wenn', 'können', 'this', 'that', 'with', 'for', 'are', 'was', 'the',
-        'and', 'you', 'can', 'use', 'all', 'any', 'may', 'new', 'now', 'old',
-        'see', 'two', 'way', 'who', 'its', 'did', 'get', 'has', 'had', 'let',
-        'put', 'say', 'too', 'old', 'our', 'out', 'day', 'own', 'run', 'set'
-    }
-    
+    # Use shared stopwords from constants
     # Filtere Wörter: mindestens 3 Zeichen, keine Stoppwörter
     meaningful_words = [
         word for word in words 
-        if len(word) >= 3 and word not in stopwords and word.isalpha()
+        if len(word) >= MIN_KEYWORD_LENGTH and word not in COMBINED_STOPWORDS and word.isalpha()
     ]
     
     if not meaningful_words:
@@ -732,18 +723,18 @@ if __name__ == '__main__':
     
     # Sicherstellen, dass das Verzeichnis existiert
     if not os.path.exists(data_path):
-        print(f"Error: Directory not found at '{data_path}'")
+        logger.error(f"Directory not found at '{data_path}'")
     else:
         # Laden aller Dateien zum Testen
         all_files = load_all_files(data_path)
         if not all_files:
-            print(f"No supported files found in '{data_path}'.")
+            logger.warning(f"No supported files found in '{data_path}'.")
         else:
-            print(f"Found {len(all_files)} file(s).")
+            logger.info(f"Found {len(all_files)} file(s).")
             
             # Teste verbessertes Chunking für jede Datei
             for name, text_content, file_type in all_files:
-                print(f"--- Processing {name} ({file_type}) ---")
+                logger.info(f"Processing {name} ({file_type})")
                 
                 # Teste sowohl altes als auch neues Chunking
                 old_chunks = []
@@ -757,20 +748,20 @@ if __name__ == '__main__':
                 
                 new_chunks = chunk_text(text_content, name, file_type=file_type)
                 
-                print(f"Old chunking: {len(old_chunks)} chunks")
-                print(f"New chunking: {len(new_chunks)} chunks")
+                logger.debug(f"Old chunking: {len(old_chunks)} chunks")
+                logger.debug(f"New chunking: {len(new_chunks)} chunks")
                 
                 if new_chunks:
-                    print("Sample new chunk metadata:")
-                    print(new_chunks[0]['metadata'])
-                    print(f"First chunk preview: {new_chunks[0]['content'][:100]}...")
-                    print("-" * 40)
+                    logger.debug("Sample new chunk metadata:")
+                    logger.debug(new_chunks[0]['metadata'])
+                    logger.debug(f"First chunk preview: {new_chunks[0]['content'][:100]}...")
+                    logger.debug("-" * 40)
 
             # Gesamte Verarbeitung testen
             all_processed_chunks = process_documents(data_path)
-            print(f"\nTotal processed chunks from all files: {len(all_processed_chunks)}")
+            logger.info(f"Total processed chunks from all files: {len(all_processed_chunks)}")
             if all_processed_chunks:
-                print("Sample chunk from total processing:")
+                logger.debug("Sample chunk from total processing:")
                 sample_chunk = all_processed_chunks[0]
-                print(f"Content: {sample_chunk['content'][:200]}...")
-                print(f"Metadata: {sample_chunk['metadata']}")
+                logger.debug(f"Content: {sample_chunk['content'][:200]}...")
+                logger.debug(f"Metadata: {sample_chunk['metadata']}")

@@ -68,6 +68,11 @@ class HybridRetrievalConfig:
         "min_token_length": 3,
         "custom_stopwords": []
     })
+    hybrid_boost_factor: float = 1.2
+    keyword_extraction: Dict[str, Any] = field(default_factory=lambda: {
+        "min_length": 3,
+        "max_keywords": 5
+    })
 
 @dataclass
 class GenerationConfig:
@@ -436,30 +441,7 @@ def set_config_path(config_path: str):
 
 # Example usage and testing
 if __name__ == '__main__':
-    print("Testing RAG Configuration System...")
-    
-    # Test configuration loading
-    config = RAGConfig()
-    
-    # Print configuration sections
-    print(f"Models: {config.models}")
-    print(f"Chunking: {config.chunking}")
-    print(f"Retrieval: {config.retrieval}")
-    
-    # Test environment override
-    os.environ['RAG_MODELS_EMBEDDING_MODEL'] = 'test-model'
-    os.environ['RAG_CHUNKING_CHUNK_SIZE'] = '1500'
-    
-    config.reload_config()
-    print(f"After env override - Embedding Model: {config.models.embedding_model}")
-    print(f"After env override - Chunk Size: {config.chunking.chunk_size}")
-    
-    # Test validation
-    is_valid = config.validate_config()
-    print(f"Configuration valid: {is_valid}")
-    
-    # Clean up test env vars
-    del os.environ['RAG_MODELS_EMBEDDING_MODEL']
-    del os.environ['RAG_CHUNKING_CHUNK_SIZE']
-    
-    print("Configuration system test completed!")
+    # This section should be moved to a proper test file
+    logger.info("Configuration system module loaded successfully")
+    logger.info("Use this module by importing RAGConfig or get_config()")
+    logger.info("For testing, run: python -m pytest tests/test_config.py")

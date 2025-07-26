@@ -85,6 +85,14 @@ hybrid_retrieval:
     
     # Custom stopwords (in addition to default German stopwords)
     custom_stopwords: []
+    
+  # Hybrid retrieval scoring
+  hybrid_boost_factor: 1.2  # Boost for documents in both top results
+  
+  # Keyword extraction settings
+  keyword_extraction:
+    min_length: 3
+    max_keywords: 5
 
 # LLM Generation Settings
 generation:

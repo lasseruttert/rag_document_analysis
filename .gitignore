@@ -20,10 +20,7 @@ model_cache/
 *.swp
 
 # Documentation (local only)
-CLAUDE.md
 GEMINI.md
-PLAN.md
-PROJECT.md
 
 # OS
 .DS_Store

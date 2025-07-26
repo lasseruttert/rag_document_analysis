@@ -440,45 +440,4 @@ class CollectionManager:
 
 # Test and example usage
 if __name__ == '__main__':
-    print("Testing Collection Management System...")
-    
-    # Initialize collection manager
-    manager = CollectionManager()
-    
-    # Test collection creation
-    print("\n1. Testing collection creation...")
-    success = manager.create_collection(
-        "test_collection", 
-        "Test collection for development",
-        tags=["test", "development"]
-    )
-    print(f"Collection creation: {'Success' if success else 'Failed'}")
-    
-    # Test collection listing
-    print("\n2. Testing collection listing...")
-    collections = manager.list_collections()
-    print(f"Found {len(collections)} collections:")
-    for coll in collections:
-        print(f"  - {coll.name}: {coll.description} ({coll.total_chunks} chunks)")
-    
-    # Test collection stats
-    print("\n3. Testing collection statistics...")
-    if collections:
-        stats = manager.get_collection_stats(collections[0].name)
-        if stats:
-            print(f"Stats for '{stats.name}':")
-            print(f"  Documents: {stats.document_count}")
-            print(f"  Chunks: {stats.chunk_count}")
-            print(f"  File types: {stats.file_type_distribution}")
-    
-    # Test metadata update
-    print("\n4. Testing metadata update...")
-    if collections:
-        success = manager.update_collection_metadata(
-            collections[0].name,
-            description="Updated test collection",
-            tags=["test", "updated"]
-        )
-        print(f"Metadata update: {'Success' if success else 'Failed'}")
-    
-    print("\nCollection Management System test completed!")
+    logger.info("CollectionManager module loaded for testing")

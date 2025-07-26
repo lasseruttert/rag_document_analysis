@@ -461,44 +461,4 @@ class QueryProcessor:
 
 # Test and example usage
 if __name__ == '__main__':
-    print("Testing Query Processing System...")
-    
-    # Initialize processor
-    processor = QueryProcessor()
-    
-    # Test queries
-    test_queries = [
-        "Was ist ein Pod in Kubernetes?",
-        "wie erstele ich ein deployment",  # Typo: erstele -> erstelle
-        "kubectl get pods",
-        "python funktion definieren",
-        "docker vs kubernetes unterschied",
-        "installiere nginx",
-        "kubernetes troubleshooting"
-    ]
-    
-    print("\nQuery Processing Results:")
-    print("=" * 80)
-    
-    for i, query in enumerate(test_queries, 1):
-        print(f"\n{i}. Original Query: '{query}'")
-        
-        result = processor.preprocess(query)
-        
-        print(f"   Processed: '{result.processed_query}'")
-        print(f"   Intent: {result.intent.value} (confidence: {result.confidence:.2f})")
-        print(f"   Keywords: {result.extracted_keywords}")
-        
-        if result.suggestions:
-            print(f"   Spelling suggestions: {result.suggestions}")
-        
-        if result.expanded_query != result.processed_query:
-            print(f"   Expanded: '{result.expanded_query[:100]}...'")
-    
-    # Test query suggestions
-    print(f"\n\nQuery Suggestions for 'kubern':")
-    suggestions = processor.suggest_queries("kubern")
-    for i, suggestion in enumerate(suggestions, 1):
-        print(f"   {i}. {suggestion}")
-    
-    print("\nQuery Processing System test completed!")
+    logger.info("QueryProcessor module loaded for testing")
